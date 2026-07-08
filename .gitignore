@@ -4,6 +4,8 @@ Manifest.toml
 *.pdf
 *.svg
 /output_tmp
+output_tmp_*
+/output
 /model
 /eval
 /data/*.csv
@@ -13,3 +15,4 @@ Manifest.toml
 *.vscode
 .DS_Store
 gmt.history
+*.code-workspace
