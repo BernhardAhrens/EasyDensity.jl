@@ -4,6 +4,7 @@ Pkg.instantiate()
 package_path = joinpath(abspath(joinpath(@__DIR__, "..")), "EasyHybrid_Porosity") # EasyDensity.jl and EasyHybrid_Porosity must live in the same parent folder
 Pkg.develop(path=package_path)
 using EasyHybrid
+using EasyHybrid: isbetter, bestdirection, Maximize
 using Lux
 using Optimisers
 using Random
@@ -94,7 +95,8 @@ nf = length(predictors)
 # hyperparameters
 # search space
 
-hidden_configs = [ 
+hidden_configs = [
+    (32, 32), 
     (512, 256, 128, 64, 32, 16),
     (512, 256, 128, 64, 32), 
     (256, 128, 64, 32, 16),
@@ -114,7 +116,11 @@ configs = [(h=h, bs=bs, lr=lr, act=act)
            for lr in lrs
            for act in activations]
 
+configs = configs[1:10]
+
 println(length(configs))
+
+loss_types = [:r2, :mse]
 
 # cross-validation
 
@@ -142,8 +148,8 @@ cfg = configs[1]
     train(
         hm_base, df;
         hidden_layers = collect(cfg.h), activation = cfg.act,
-        nepochs = 2, batchsize = cfg.bs, opt = AdamW(cfg.lr),
-        training_loss = :nseLoss, loss_types = [:nse, :r2], shuffleobs = true,
+        nepochs = 100, batchsize = cfg.bs, opt = AdamW(cfg.lr),
+        training_loss = :nseLoss, loss_types = loss_types, shuffleobs = true,
         model_name = "warmup", output_folder = output_tmp_dir,
         random_seed = 42, patience = 15, yscale = identity,
         monitor_names = [:oBD, :mBD],return_model = :best,
@@ -167,7 +173,7 @@ Logging.disable_logging(Logging.Warn)
 
     # track best config for this outer fold
     lk = ReentrantLock()
-    best_val_loss = Inf
+    best_val_loss = bestdirection(Val(first(loss_types))) isa Maximize ? -Inf : Inf
     best_config = nothing
     best_result = nothing
     best_model_path = nothing
@@ -178,7 +184,7 @@ Logging.disable_logging(Logging.Warn)
 # The @showprogress macro is used to show a progress bar.
 # The Threads.@threads macro is used to run the loop in parallel.
 
-Threads.@threads :greedy for i in 1:length(configs)
+@showprogress Threads.@threads :greedy for i in 1:length(configs)
         try
             cfg = configs[i]
         
@@ -195,11 +201,11 @@ Threads.@threads :greedy for i in 1:length(configs)
                 hm_base, train_df;
                 hidden_layers = collect(h),
                 activation = act,
-                nepochs = 1000,
+                nepochs = 10,
                 batchsize = bs,
                 opt = AdamW(lr),
                 training_loss = :nseLoss,
-                loss_types = [:r2, :mse],
+                loss_types = loss_types,
                 shuffleobs = true,
                 model_name = "$(testid)_config$(i)_fold$(test_fold)",
                 output_folder = output_tmp_dir,
@@ -213,7 +219,7 @@ Threads.@threads :greedy for i in 1:length(configs)
             )
     
             lock(lk)
-            if rlt.best_loss < best_val_loss
+            if isbetter(rlt.best_loss, best_val_loss, first(loss_types))
                 best_val_loss = rlt.best_loss
                 best_config = cfg
                 best_result = rlt

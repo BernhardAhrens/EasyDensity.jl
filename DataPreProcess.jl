@@ -1,3 +1,10 @@
+import Pkg
+using Pkg
+Pkg.activate(".")
+package_path = joinpath(abspath(joinpath(@__DIR__, "..")), "EasyHybrid_Porosity") # assuming it is two directories up from project_path, i.e. EasyQ10 and EasyHybrid have to be in the same folder
+Pkg.develop(path=package_path)
+Pkg.instantiate()
+
 # CC BY-SA 4.0
 using Revise
 using EasyHybrid
@@ -8,7 +15,7 @@ using Statistics
 version = "v20251125"
 
 # ? move the `csv` file into the `BulkDSOC/data` folder (create folder)
-df_o = CSV.read(joinpath(@__DIR__, "./data/lucas_overlaid.csv"), DataFrame, normalizenames=true);
+df_o = CSV.read(joinpath(@__DIR__, "data/lucas_overlaid.csv"), DataFrame, normalizenames=true);
 println(size(df_o));
 
 ############################
