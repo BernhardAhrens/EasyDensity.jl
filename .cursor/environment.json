@@ -1,0 +1,8 @@
+{
+  "name": "EasyDensity.jl",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "repositoryDependencies": [
+    "github.com/BernhardAhrens/EasyHybrid.jl"
+  ]
+}
