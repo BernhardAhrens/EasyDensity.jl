@@ -14,3 +14,6 @@ Manifest.toml
 *.vscode
 .DS_Store
 gmt.history
+*.code-workspace
+*.out
+*.err
