@@ -1,22 +1,21 @@
 
-using Parquet2, Tables, DataFrames
+using CSV, DataFrames
 using Statistics
-using GLMakie, CairoMakie
-GLMakie.activate!()
+using CairoMakie
+CairoMakie.activate!()
 
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
-version = "v20251216"
+version = "v20251209"
 targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 labels = ["SOC content", "CF", "BD", "SOC density"]
 models = ["UniNN", "MultiNN", "SiNN"]
 
-ds = Parquet2.Dataset("eval/all_cv.pred_with.lc_$(version).pq")
-df = DataFrame(ds; copycols=false)
+df = CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame)
 
 function compute_apply_mask(y_pred, y_target)
-    mask = .!ismissing.(y_pred) .& .!ismissing.(y_target)
+    mask = map((a, b) -> !ismissing(a) && !ismissing(b) && isfinite(a) && isfinite(b), y_pred, y_target)
     return replace(y_pred[mask], missing => NaN), replace(y_target[mask], missing => NaN)
 end
 
@@ -29,7 +28,7 @@ function compute_r2_mse(y_pred, y_target)
 end
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+mkpath(joinpath(@__DIR__, "../figures_png/"))
 
 with_theme(theme_latexfonts()) do
     for (k, t) in enumerate(targets)
@@ -83,6 +82,6 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures/model_accuracy_$(t).pdf"), fig)
+        save(joinpath(@__DIR__, "../figures_png/model_accuracy_$(t).png"), fig)
     end
 end

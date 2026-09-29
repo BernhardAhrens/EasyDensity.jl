@@ -1,180 +1,220 @@
-# =============================================================================
-# Shared helpers for dropout-enabled hyperparameter optimization + MC-dropout UQ
-# =============================================================================
-#
-# Used by the converted notebook scripts `SiNN.jl`, `UniNN.jl` and `MultiNN.jl`.
-#
-# Motivation (reviewer request): perform aleatoric/epistemic uncertainty
-# quantification. To enable **Monte-Carlo dropout** later, the hyperparameter
-# search now (a) includes a dropout probability in the search space and
-# (b) builds every candidate network with `Dropout` layers. The best
-# configuration is then retrained with dropout so `EasyHybrid.estimate_uncertainty`
-# with `MCDropout(...)` can be applied.
-#
-# MC dropout requires the EasyHybrid uncertainty API (branch
-# `cursor/aleatoric-uncertainty-quantification-c142`, PR #2).
-
 using EasyHybrid
-using EasyHybrid: constructNNModel
-using LuxCore
-using Random, Statistics, DataFrames
+using Lux, NNlib, Optimisers, LuxCore
+using CSV, DataFrames, Random, Statistics, JLD2, LinearAlgebra
 
-"""
-    make_dropout_chain(h, act, p) -> Chain
+const DATA_VERSION = "v20251125"
+const RESULT_VERSION = "v20251209"
+const ROW_KEYS = [:row_id, :time, :lat, :lon, :id, :nuts0, :maxdiff,
+    :bd, :clay, :sand, :silt, :cf, :ocd, :soc, :SOCconc, :CF, :BD, :SOCdensity]
 
-Build the *hidden* portion of a network for `constructNNModel` /
-`constructHybridModel` as a `Chain` of `Dense(h[i] => h[i+1], act)` blocks with a
-`Dropout(p)` after each hidden layer. `prepare_hidden_chain` then wraps this with
-the input projection `Dense(in_dim => h[1])` and the output layer
-`Dense(h[end] => out_dim)`, so the resulting architecture matches the original
-`collect(h)` sizes with dropout inserted after every hidden layer.
-
-`p == 0` yields a dropout-free network (useful as a baseline in the search).
-"""
 function make_dropout_chain(h, act, p)
-    layers = Any[]
-    for i in 1:(length(h) - 1)
-        push!(layers, Dense(h[i], h[i + 1], act))
-        p > 0 && push!(layers, Dropout(Float32(p)))
-    end
-    if isempty(layers)                     # single hidden size -> one Dense (+dropout)
+    h = collect(Int, h)
+    layers = []
+    if length(h) == 1
         push!(layers, Dense(h[1], h[1], act))
         p > 0 && push!(layers, Dropout(Float32(p)))
+    else
+        for i in 1:(length(h) - 1)
+            push!(layers, Dense(h[i], h[i + 1], act))
+            p > 0 && push!(layers, Dropout(Float32(p)))
+        end
     end
     return Chain(layers...)
 end
 
-"""
-    build_configs(hidden_configs, batch_sizes, lrs, activations, dropouts) -> Vector{NamedTuple}
-
-Cartesian product of the search space, now including a dropout probability `p`.
-"""
-function build_configs(hidden_configs, batch_sizes, lrs, activations, dropouts)
-    return [(h = h, bs = bs, lr = lr, act = act, p = p)
-            for h in hidden_configs
-            for bs in batch_sizes
-            for lr in lrs
-            for act in activations
-            for p in dropouts]
-end
-
-"""
-    cv_grid_hpo(build_model, df, configs; k, nepochs, seed, patience, train_kwargs...)
-
-Nested k-fold grid-search hyperparameter optimization, mirroring the original
-notebooks: for each outer fold, every configuration is trained (with an internal
-train/validation split) and the configuration with the lowest validation loss is
-kept. `build_model(cfg)` must return a fresh model for a given config (with
-dropout). Returns a vector of `(; loss, cfg, res, model)` — the best per fold.
-"""
-function cv_grid_hpo(build_model, df, configs; k = 5, nepochs = 200, seed = 42,
-        patience = 15, train_kwargs...)
-    Random.seed!(seed)
-    folds = make_folds(df, k = k, shuffle = true)
-    fold_best = Vector{NamedTuple}(undef, k)
-
-    for test_fold in 1:k
-        @info "Outer fold $test_fold / $k"
-        train_idx = findall(!=(test_fold), folds)
-        train_df = df[train_idx, :]
-
-        best = (; loss = Inf, cfg = nothing, res = nothing, model = nothing)
-        for cfg in configs
-            m = build_model(cfg)
-            res = train(m, train_df, ();
-                nepochs = nepochs, batchsize = cfg.bs, opt = AdamW(cfg.lr),
-                training_loss = :mse, loss_types = [:mse, :r2], shuffleobs = true,
-                random_seed = seed, patience = patience, agg = mean,
-                return_model = :best, show_progress = false, plotting = false,
-                save_training = false, train_kwargs...)
-            res === nothing && continue
-            if res.best_loss < best.loss
-                best = (; loss = res.best_loss, cfg = cfg, res = res, model = deepcopy(m))
-            end
+function study_grid()
+    root = @__DIR__
+    smoke = get(ENV, "EASYDENSITY_SMOKE", "0") == "1"
+    src = joinpath(root, "data", "lucas_preprocessed_$(DATA_VERSION).csv")
+    df = CSV.read(src, DataFrame; normalizenames = true)
+    predictors = Symbol.(names(df))[18:(end - 6)]
+    if smoke
+        n = parse(Int, get(ENV, "EASYDENSITY_SMOKE_N", "200"))
+        visits = combine(groupby(df, :id), nrow => :nvisits)
+        triple = Set(visits.id[visits.nvisits .== 3])
+        finite_target = trues(nrow(df))
+        for t in [:BD, :SOCconc, :CF, :SOCdensity]
+            finite_target .&= map(v -> v isa Real && isfinite(v), df[!, t])
         end
-        fold_best[test_fold] = best
+        complete = Set(df.id[finite_target])
+        df = df[in.(df.id, Ref(intersect(triple, complete))), :]
+        min_rows = 160
+        nrow(df) < min_rows && error("smoke data has $(nrow(df)) rows from three-visit sites; need at least $min_rows")
+        id_order = unique(df.id)
+        n_ids = cld(max(n, min_rows), 3)
+        function column_filled(frame)
+            for name in [ROW_KEYS; predictors]
+                hasproperty(frame, name) || continue
+                col = frame[!, name]
+                nval = eltype(col) <: Union{Missing, Real} ? count(v -> v isa Real && isfinite(v), col) : count(!ismissing, col)
+                nval > 0 || return name
+            end
+            return nothing
+        end
+        chosen = df[in.(df.id, Ref(Set(id_order[1:min(n_ids, length(id_order))]))), :]
+        while (missing_col = column_filled(chosen)) !== nothing && n_ids < length(id_order)
+            n_ids = min(length(id_order), n_ids + 20)
+            chosen = df[in.(df.id, Ref(Set(id_order[1:n_ids]))), :]
+        end
+        missing_col = column_filled(chosen)
+        missing_col === nothing || error("smoke column $missing_col has no values in $(nrow(chosen)) three-visit rows")
+        df = chosen
+        @info "smoke subset" rows = nrow(df) sites = length(unique(df.id)) visits = 3
+        hidden = [(32, 16)]
+        batches, rates, acts, drops = [32], [1e-2], [relu], [0.2]
+        k, nepochs, patience = 2, 4, 2
+    else
+        hidden = [
+            (512, 256, 128, 64, 32, 16), (512, 256, 128, 64, 32),
+            (256, 128, 64, 32, 16), (256, 128, 64, 32), (256, 128, 64),
+            (128, 64, 32, 16), (128, 64, 32), (64, 32, 16),
+        ]
+        batches = [128, 256, 512]
+        rates = [1e-3, 5e-4, 1e-4]
+        acts = [relu, swish, gelu]
+        drops = [0.1, 0.2, 0.3]
+        k, nepochs, patience = 5, 200, 15
     end
-    return fold_best, folds
+    configs = [(h = h, bs = bs, lr = lr, act = act, p = p)
+               for h in hidden for bs in batches for lr in rates for act in acts for p in drops]
+    return (; df, predictors, configs, k, nepochs, patience, smoke, root)
 end
 
-"""
-    oof_predictions(fold_best, folds, df, targets) -> DataFrame
+function as_column(point, n)
+    values = Float32.(vec(collect(point)))
+    length(values) == n && return values
+    length(values) == 1 && return fill(values[1], n)
+    error("prediction length $(length(values)) does not match $n rows")
+end
 
-Out-of-fold predictions: for each outer fold, predict the held-out rows with that
-fold's best (dropout) model in **test mode** (dropout off) and collect
-`pred_<target>` columns. Mirrors the notebooks' cross-validated prediction export.
-"""
-function oof_predictions(fold_best, folds, df, targets)
-    pieces = DataFrame[]
-    for test_fold in eachindex(fold_best)
-        fb = fold_best[test_fold]
-        fb.model === nothing && continue
-        test_df = df[findall(==(test_fold), folds), :]
-        x_test = prepare_data(fb.model, test_df)[1]
-        ŷ, _ = fb.model(x_test, fb.res.ps, LuxCore.testmode(fb.res.st))
-        out = copy(test_df)
-        for t in targets
-            if hasproperty(ŷ, t)
-                val = getproperty(ŷ, t)
-                if val isa AbstractVector && length(val) == nrow(test_df)
-                    out[!, Symbol("pred_", t)] = collect(val)
-                elseif (val isa Number) || (val isa AbstractVector && length(val) == 1)
-                    out[!, Symbol("pred_", t)] = fill(Float32(val isa AbstractVector ? first(val) : val), nrow(test_df))
-                end
+function prediction_spread(model, x, ps, st, names, n_mc)
+    st = LuxCore.trainmode(st)
+    draws = Dict(name => Vector{Float32}[] for name in names)
+    for _ in 1:n_mc
+        yhat, st = model(x, ps, st)
+        for name in names
+            push!(draws[name], Float32.(vec(collect(getproperty(yhat, name)))))
+        end
+    end
+    out = Dict{Symbol, NamedTuple}()
+    for name in names
+        M = reduce(hcat, draws[name])
+        out[name] = (;
+            std = Float32.(vec(std(M; dims = 2))),
+            lower = Float32[quantile(view(M, i, :), 0.025) for i in 1:size(M, 1)],
+            upper = Float32[quantile(view(M, i, :), 0.975) for i in 1:size(M, 1)],
+        )
+    end
+    return out
+end
+
+function observed_rows(frame, targets)
+    keep = trues(nrow(frame))
+    for t in targets
+        hasproperty(frame, t) || continue
+        keep .&= map(v -> v isa Real && isfinite(v), frame[!, t])
+    end
+    return frame[keep, :]
+end
+
+function run_study(build_model, df, study; prefix, targets, latents = Symbol[], testid,
+        monitor = Symbol[], into = nothing, write = true, target = nothing, append_params = false)
+    t0 = time()
+    Random.seed!(42)
+    folds = make_folds(df, k = study.k, shuffle = true)
+    ncfg = length(study.configs)
+    fold_best = Vector{NamedTuple}(undef, study.k)
+    n_mc = study.smoke ? 4 : 100
+    blas = BLAS.get_num_threads()
+    BLAS.set_num_threads(1)
+    try
+        for fold in 1:study.k
+            @info "$testid fold $fold / $(study.k)" configs = ncfg threads = Threads.nthreads()
+            train_df = observed_rows(df[folds .!= fold, :], targets)
+            nrow(train_df) == 0 && error("$testid fold $fold has no rows with finite targets")
+            slot = Vector{Any}(nothing, ncfg)
+            Threads.@threads for i in 1:ncfg
+                cfg = study.configs[i]
+                model = build_model(cfg)
+                res = train(model, train_df;
+                    nepochs = study.nepochs, batchsize = cfg.bs, opt = AdamW(cfg.lr),
+                    training_loss = :mse, loss_types = [:mse, :r2], shuffleobs = true,
+                    random_seed = 42, patience = study.patience, agg = mean,
+                    return_model = :best, show_progress = false, plotting = false,
+                    save_training = false, monitor_names = monitor)
+                res === nothing && continue
+                slot[i] = (; loss = res.best_loss, cfg, res, model = deepcopy(model))
             end
+            done = filter(!isnothing, slot)
+            isempty(done) && error("$testid fold $fold produced no trained model")
+            fold_best[fold] = done[argmin([d.loss for d in done])]
+        end
+    finally
+        BLAS.set_num_threads(blas)
+    end
+
+    pieces = DataFrame[]
+    params = DataFrame(target = Symbol[], h = String[], bs = Int[], lr = Float64[], act = String[],
+        p = Float64[], mse = Float64[], best_epoch = Int[], test_fold = Int[])
+    for fold in eachindex(fold_best)
+        fb = fold_best[fold]
+        test_df = df[folds .== fold, :]
+        n = nrow(test_df)
+        x = prepare_data(fb.model, test_df; drop_missing_rows = false)[1]
+        yhat, _ = fb.model(x, fb.res.ps, LuxCore.testmode(fb.res.st))
+        spread = prediction_spread(fb.model, x, fb.res.ps, fb.res.st, [targets; latents], n_mc)
+        keys = filter(k -> hasproperty(test_df, k), ROW_KEYS)
+        out = select(test_df, keys)
+        for t in targets
+            out[!, Symbol(prefix, t)] = as_column(getproperty(yhat, t), n)
+            out[!, Symbol(prefix, t, "_std")] = spread[t].std
+            out[!, Symbol(prefix, t, "_lower")] = spread[t].lower
+            out[!, Symbol(prefix, t, "_upper")] = spread[t].upper
+        end
+        for t in latents
+            out[!, Symbol("pred_", t)] = as_column(getproperty(yhat, t), n)
+            out[!, Symbol("pred_", t, "_std")] = spread[t].std
+            out[!, Symbol("pred_", t, "_lower")] = spread[t].lower
+            out[!, Symbol("pred_", t, "_upper")] = spread[t].upper
         end
         push!(pieces, out)
+        push!(params, (; target = something(target, :all), h = string(fb.cfg.h), bs = fb.cfg.bs,
+            lr = fb.cfg.lr, act = string(fb.cfg.act), p = fb.cfg.p, mse = fb.loss,
+            best_epoch = fb.res.best_epoch, test_fold = fold))
     end
-    return isempty(pieces) ? DataFrame() : vcat(pieces...; cols = :union)
-end
+    pred = vcat(pieces...; cols = :union)
+    if into !== nothing
+        fresh = setdiff(Symbol.(names(pred)), ROW_KEYS)
+        pred = leftjoin(into, select(pred, :row_id, fresh), on = :row_id)
+    end
+    if !hasproperty(pred, :LC1)
+        lc_path = joinpath(study.root, "data", "lc_by_row_id.csv")
+        if isfile(lc_path)
+            pred = leftjoin(pred, CSV.read(lc_path, DataFrame), on = :row_id)
+        end
+    end
 
-"""
-    overall_best(fold_best) -> NamedTuple
-
-Pick the single best `(; loss, cfg, res, model)` across folds (lowest validation loss).
-"""
-overall_best(fold_best) = fold_best[argmin([fb.loss for fb in fold_best])]
-
-"""
-    retrain_best(build_model, cfg, df; nepochs, seed, patience, train_kwargs...)
-
-Retrain the best configuration (with dropout) on `df` and return the `TrainResults`
-plus the freshly built model. This is the model to use for MC-dropout UQ.
-"""
-function retrain_best(build_model, cfg, df; nepochs = 200, seed = 42, patience = 15, train_kwargs...)
-    model = build_model(cfg)
-    res = train(model, df, ();
-        nepochs = nepochs, batchsize = cfg.bs, opt = AdamW(cfg.lr),
+    eval_dir = joinpath(study.root, "eval")
+    models_dir = joinpath(study.root, "models")
+    mkpath(eval_dir)
+    mkpath(models_dir)
+    param_path = joinpath(eval_dir, "$(testid)_hyperparams_$(RESULT_VERSION).csv")
+    CSV.write(param_path, params; append = append_params, writeheader = !append_params)
+    tag = target === nothing ? "" : "_$(target)"
+    best = fold_best[argmin([fb.loss for fb in fold_best])]
+    retrained = build_model(best.cfg)
+    res = train(retrained, observed_rows(df, targets);
+        nepochs = study.nepochs, batchsize = best.cfg.bs, opt = AdamW(best.cfg.lr),
         training_loss = :mse, loss_types = [:mse, :r2], shuffleobs = true,
-        random_seed = seed, patience = patience, agg = mean,
+        random_seed = 42, patience = study.patience, agg = mean,
         return_model = :best, show_progress = false, plotting = false,
-        save_training = false, train_kwargs...)
-    return model, res
-end
-
-# --- Smoke-test utilities ----------------------------------------------------
-# When the real LUCAS CSV is unavailable (e.g. CI), generate a small synthetic
-# dataset with the same target columns so the whole pipeline can be exercised.
-smoke_mode() = get(ENV, "EASYDENSITY_SMOKE", "0") == "1"
-
-"""
-    synthetic_lucas(n; nfeatures, targets, seed) -> (df, predictors)
-
-Small synthetic dataset with `nfeatures` predictor columns `f1..fN` and the
-requested `targets`, for smoke-testing the pipeline without the real data.
-"""
-function synthetic_lucas(n; nfeatures = 6, targets = [:BD, :SOCconc, :CF, :SOCdensity], seed = 1)
-    rng = MersenneTwister(seed)
-    df = DataFrame()
-    X = randn(rng, Float32, n, nfeatures)
-    predictors = [Symbol("f", i) for i in 1:nfeatures]
-    for (i, p) in enumerate(predictors)
-        df[!, p] = X[:, i]
+        save_training = false, monitor_names = monitor)
+    res === nothing && error("$testid retrain produced no model")
+    jldsave(joinpath(models_dir, "$(testid)$(tag)_best_$(RESULT_VERSION).jld2");
+        cfg = best.cfg, ps = res.ps, st = res.st)
+    if write
+        CSV.write(joinpath(eval_dir, "$(testid)_cv.pred_$(RESULT_VERSION).csv"), pred)
     end
-    w = randn(rng, Float32, nfeatures)
-    base = X * w
-    for t in targets
-        df[!, t] = Float32.(0.2 .* base .+ 0.1 .* randn(rng, Float32, n) .+ 0.5)
-    end
-    return df, predictors
+    @info "$testid finished" seconds = round(time() - t0; digits = 1) trainings = study.k * ncfg + 1
+    return pred
 end

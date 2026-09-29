@@ -1,12 +1,12 @@
-using Parquet2, Tables, DataFrames
+using CSV, DataFrames
 using Statistics
-using GLMakie, CairoMakie
-GLMakie.activate!()
+using CairoMakie
+CairoMakie.activate!()
 
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
-version = "v20251216"
+version = "v20251209"
 # targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 # labels = ["SOC content", "CF", "BD", "SOC density"]
 to_join_dist = ["bd", "soc"]
@@ -18,8 +18,7 @@ for m in models
     push!(xy_to, m .* to_join_dist)
 end
 
-ds = Parquet2.Dataset("eval/all_cv.pred_with.lc_$(version).pq")
-df = DataFrame(ds; copycols=false)
+df = CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame)
 
 # ? why, from where are these coming from?
 scalers = Dict(
@@ -84,7 +83,7 @@ colors = categorical_colors(:Set1, length(vars_to_check))
 colors = repeat([:grey15], 3)
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+mkpath(joinpath(@__DIR__, "../figures_png/"))
 
 with_theme(theme_latexfonts()) do
 
@@ -108,7 +107,7 @@ with_theme(theme_latexfonts()) do
             ax.yticks = 0:20:160
         end
         fig
-        save(joinpath(@__DIR__, "../figures/temporal_plausibility_1.pdf"), fig)
+        save(joinpath(@__DIR__, "../figures_png/temporal_plausibility_1.png"), fig)
 end
 
 
@@ -159,5 +158,5 @@ with_theme(theme_latexfonts()) do
         hidespines!(ax2, :l)
         colgap!(fig.layout, 50)
         fig
-        save(joinpath(@__DIR__, "../figures/temporal_plausibility_2.pdf"), fig)
+        save(joinpath(@__DIR__, "../figures_png/temporal_plausibility_2.png"), fig)
 end

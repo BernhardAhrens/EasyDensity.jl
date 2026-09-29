@@ -1,12 +1,11 @@
-using Parquet2, Tables, DataFrames
+using CSV, DataFrames
 using Statistics
-using GLMakie, CairoMakie
-GLMakie.activate!()
+using CairoMakie
+CairoMakie.activate!()
 
-version = "v20251216"
+version = "v20251209"
 
-ds = Parquet2.Dataset("eval/all_cv.pred_with.lc_$(version).pq")
-df = DataFrame(ds; copycols=false)
+df = CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame)
 
 
 # cleaning
@@ -90,7 +89,7 @@ println(stats_copa)
 hbd_copa_g = groupby(hbd_clean_copa, [:LC_group])
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+mkpath(joinpath(@__DIR__, "../figures_png/"))
 with_theme(theme_latexfonts()) do
     fig = Figure(; figure_padding=(5,15,0,15), size = (1200, 600), fontsize=15)
     axs = [Axis(fig[i,j], xlabelsize = 16, ylabelsize=16, xticklabelsize = 16, yticklabelsize=16,) for i in 1:2 for j in 1:4]
@@ -169,5 +168,5 @@ with_theme(theme_latexfonts()) do
     colgap!(fig.layout, 10)
     # rowgap!(fig.layout, 5)
     fig
-    save(joinpath(@__DIR__, "../figures/porosity.pdf"), fig)
+    save(joinpath(@__DIR__, "../figures_png/porosity.png"), fig)
 end

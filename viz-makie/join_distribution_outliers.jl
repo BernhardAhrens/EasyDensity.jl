@@ -1,12 +1,12 @@
-using Parquet2, Tables, DataFrames
+using CSV, DataFrames
 using Statistics
-using GLMakie, CairoMakie
-GLMakie.activate!()
+using CairoMakie
+CairoMakie.activate!()
 
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
-version = "v20251216"
+version = "v20251209"
 # targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 # labels = ["SOC content", "CF", "BD", "SOC density"]
 to_join_dist = ["bd", "soc"]
@@ -18,8 +18,7 @@ for m in models
     push!(xy_to, m .* to_join_dist)
 end
 
-ds = Parquet2.Dataset("eval/all_cv.pred_with.lc_$(version).pq")
-df = DataFrame(ds; copycols=false)
+df = CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame)
 
 # ? why, from where are these coming from?
 scalers = Dict(
@@ -39,12 +38,12 @@ md_preds = rich.(rich.(models_raw, font=:bold), " prediction")
 titles = ["Observation", md_preds...]
 
 function compute_apply_mask(y_pred, y_target)
-    mask = .!ismissing.(y_pred) .& .!ismissing.(y_target)
+    mask = map((a, b) -> !ismissing(a) && !ismissing(b) && isfinite(a) && isfinite(b), y_pred, y_target)
     return replace(y_pred[mask], missing => NaN), replace(y_target[mask], missing => NaN)
 end
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+mkpath(joinpath(@__DIR__, "../figures_png/"))
 
 # ! filter outliers !
 df = subset(
@@ -96,5 +95,5 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures/joint_distribution_outliers.pdf"), fig)
+        save(joinpath(@__DIR__, "../figures_png/joint_distribution_outliers.png"), fig)
 end

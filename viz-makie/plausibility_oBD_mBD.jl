@@ -1,12 +1,11 @@
-using Parquet2, Tables, DataFrames
+using CSV, DataFrames
 using Statistics
-using GLMakie, CairoMakie
-GLMakie.activate!()
+using CairoMakie
+CairoMakie.activate!()
 
-version = "v20251216"
+version = "v20251209"
 
-ds = Parquet2.Dataset("eval/all_cv.pred_with.lc_$(version).pq")
-df = DataFrame(ds; copycols=false)
+df = CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame)
 
 land_covers = [
     "artificial",
@@ -28,7 +27,7 @@ df_mBDg = groupby(df_mBD, "LC_group")
 colors = repeat([:grey15], length(land_covers))
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+mkpath(joinpath(@__DIR__, "../figures_png/"))
 
 with_theme(theme_latexfonts()) do
 
@@ -83,5 +82,5 @@ with_theme(theme_latexfonts()) do
             halign = :right
             ) for (j, k) in enumerate(["(a)", "(b)"])]
         fig
-        save(joinpath(@__DIR__, "../figures/plausibility_oBD_mBD.pdf"), fig)
+        save(joinpath(@__DIR__, "../figures_png/plausibility_oBD_mBD.png"), fig)
 end
