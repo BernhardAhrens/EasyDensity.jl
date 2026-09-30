@@ -7,6 +7,56 @@ const RESULT_VERSION = "v20251209"
 const ROW_KEYS = [:row_id, :time, :lat, :lon, :id, :nuts0, :maxdiff,
     :bd, :clay, :sand, :silt, :cf, :ocd, :soc, :SOCconc, :CF, :BD, :SOCdensity]
 
+const SINN_SCALERS = Dict(:SOCconc => 0.151, :CF => 0.263, :BD => 0.529, :SOCdensity => 0.167)
+
+function SOCD_model(; SOCconc, CF, oBD, mBD)
+    ϵ = 1.0e-7
+    soct = (exp.(SOCconc ./ SINN_SCALERS[:SOCconc]) .- 1) ./ 1000
+    soct = clamp.(soct, ϵ, Inf)
+    cft = (exp.(CF ./ SINN_SCALERS[:CF]) .- 1) ./ 100
+    cft = clamp.(cft, 0, 0.99)
+    som = 1.724f0 .* soct
+    som = clamp.(som, 0, 1)
+    denom = som .* mBD .+ (1.0f0 .- som) .* oBD
+    BD = (oBD .* mBD) ./ denom
+    BD = clamp.(BD, ϵ, Inf)
+    SOCdensity = soct .* 1000 .* BD .* (1 .- cft)
+    SOCdensity = clamp.(SOCdensity, 1, Inf)
+    SOCdensity = log.(SOCdensity) .* SINN_SCALERS[:SOCdensity]
+    BD = BD .* SINN_SCALERS[:BD]
+    return (; BD, SOCconc, CF, SOCdensity, oBD, mBD)
+end
+
+const SINN_PARAMETERS = (
+    SOCconc = (0.01f0, 0.0f0, 1.0f0),
+    CF = (0.15f0, 0.0f0, 1.0f0),
+    oBD = (0.20f0, 0.05f0, 0.40f0),
+    mBD = (1.20f0, 0.75f0, 2.0f0),
+)
+const SINN_NEURAL_PARAMS = [:SOCconc, :CF, :mBD, :oBD]
+const SINN_LATENTS = [:oBD, :mBD]
+const TARGETS = [:BD, :SOCconc, :CF, :SOCdensity]
+
+function build_uninn(predictors, target, cfg)
+    return constructNNModel(predictors, [target];
+        hidden_layers = make_dropout_chain(cfg.h, cfg.act, cfg.p),
+        activation = cfg.act, scale_nn_outputs = true, input_batchnorm = false)
+end
+
+function build_multinn(predictors, targets, cfg)
+    return constructNNModel(predictors, targets;
+        hidden_layers = make_dropout_chain(cfg.h, cfg.act, cfg.p),
+        activation = cfg.act, scale_nn_outputs = true, input_batchnorm = false)
+end
+
+function build_sinn(predictors, targets, cfg)
+    return constructHybridModel(predictors, Symbol[], targets, SOCD_model, SINN_PARAMETERS,
+        SINN_NEURAL_PARAMS, Symbol[];
+        hidden_layers = make_dropout_chain(cfg.h, cfg.act, cfg.p),
+        activation = cfg.act, scale_nn_outputs = true, input_batchnorm = false,
+        start_from_default = true)
+end
+
 function make_dropout_chain(h, act, p)
     h = collect(Int, h)
     layers = []

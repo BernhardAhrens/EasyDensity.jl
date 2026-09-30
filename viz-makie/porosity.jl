@@ -3,21 +3,23 @@ using Statistics
 using CairoMakie
 CairoMakie.activate!()
 
+include(joinpath(@__DIR__, "uq_columns.jl"))
+
 version = "v20251209"
 
-df = CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame)
+df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
 
-
+function porosity_figure(df, method)
 # cleaning
 cols = [
     :row_id, :time, :lat, :lon, :id, :nuts0, :maxdiff, :bd, :clay,
     :sand, :silt, :cf, :ocd, :soc, :SOCconc, :CF, :BD, :SOCdensity,
     :ndvi, :ndwi, :lst_night, :lst_day, :precipitation, :peat,
-    :SiNN_BD, :SiNN_SOCconc, :SiNN_CF, :SiNN_SOCdensity,
-    :pred_oBD, :pred_mBD, :LC1, :LC_group
+    Symbol("pred_oBD_$(method)"), Symbol("pred_mBD_$(method)"), :LC1, :LC_group
 ]
 
 hbd = select(df, cols)
+rename!(hbd, Symbol("pred_oBD_$(method)") => :pred_oBD, Symbol("pred_mBD_$(method)") => :pred_mBD)
 println(size(hbd))
 
 # statistics
@@ -168,5 +170,10 @@ with_theme(theme_latexfonts()) do
     colgap!(fig.layout, 10)
     # rowgap!(fig.layout, 5)
     fig
-    save(joinpath(@__DIR__, "../figures_png/porosity.png"), fig)
+    save(joinpath(@__DIR__, "../figures_png/porosity_$(method).png"), fig)
+end
+end
+
+for method in present_methods(df, method -> ["pred_oBD_$(method)", "pred_mBD_$(method)"])
+    porosity_figure(df, method)
 end

@@ -3,22 +3,17 @@ using Statistics
 using CairoMakie
 CairoMakie.activate!()
 
+include(joinpath(@__DIR__, "uq_columns.jl"))
+
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
 version = "v20251209"
 # targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 # labels = ["SOC content", "CF", "BD", "SOC density"]
-to_join_dist = ["bd", "soc"]
-models = ["", "UniNN_", "MultiNN_", "SiNN_"]
 models_raw = ["UniNN", "MultiNN", "SiNN"]
 
-xy_to = []
-for m in models
-    push!(xy_to, m .* to_join_dist)
-end
-
-df = CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame)
+df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
 
 # ? why, from where are these coming from?
 scalers = Dict(
@@ -27,13 +22,6 @@ scalers = Dict(
     "BD"=> 0.529,
     "SOCdensity"=> 0.167)
 
-# append new columns
-for mod in models_raw
-    df[!, "$(mod)_soc"] = @. exp(df[!, "$(mod)_SOCconc"] / scalers["SOCconc"]) - 1
-    df[!, "$(mod)_cf"]  = @. exp(df[!, "$(mod)_CF"] / scalers["CF"]) - 1
-    df[!, "$(mod)_bd"]  = @. df[!, "$(mod)_BD"] / scalers["BD"] # ? are we getting the same numbers here!
-    df[!, "$(mod)_ocd"] = @. exp(df[!, "$(mod)_SOCdensity"] / scalers["SOCdensity"])
-end
 md_preds = rich.(rich.(models_raw, font=:bold), " prediction")
 titles = ["Observation", md_preds...]
 
@@ -47,6 +35,10 @@ df = dropmissing(df, [:bd, :soc])
 
 CairoMakie.activate!() # uncomment this to save pdf files.
 mkpath(joinpath(@__DIR__, "../figures_png/"))
+
+function draw_joint(df, method)
+add_scaled_predictions!(df, method, models_raw, scalers)
+xy_to = scaled_joint_pairs(method, models_raw)
 
 with_theme(theme_latexfonts()) do
 
@@ -90,7 +82,7 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures_png/joint_distribution.png"), fig)
+        save(joinpath(@__DIR__, "../figures_png/joint_distribution_$(method).png"), fig)
 end
 
 # do a normal density heatmap!
@@ -137,13 +129,13 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures_png/joint_distribution_density_heatmap.png"), fig)
+        save(joinpath(@__DIR__, "../figures_png/joint_distribution_density_heatmap_$(method).png"), fig)
 end
 
 
 # ! check numbers
 # variables to check (same as python)
-vars_to_check = ["UniNN_ocd", "MultiNN_ocd", "SiNN_ocd"]
+vars_to_check = ["$(mod)_ocd_$(method)" for mod in models_raw]
 
 df_filtered = copy(df)
 
@@ -185,16 +177,21 @@ end
 val_labels = ["UniNN","MultiNN","SiNN"]
 
 for ii in val_labels
-    col = skipmissing(stability[!, Symbol(ii * "_ocd_range")])
+    col = skipmissing(stability[!, Symbol("$(ii)_ocd_$(method)_range")])
 
     q05 = quantile(col, 0.05)
     med = median(col)
     q95 = quantile(col, 0.95)
 
-    println(ii, ": ", q05, "  ", med, "  ", q95)
+    println(method, " ", ii, ": ", q05, "  ", med, "  ", q95)
 end
 
 # ! this is my output
 # UniNN: 0.76481805617236  3.6588506761590427  12.348510392006892
 # MultiNN: 0.6328896287047178  3.02064480793726  10.658227136384529
 # SiNN: 0.738088003073246  3.4789800338796812  10.386650944633367
+end
+
+for method in present_methods(df, scaled_probes(models_raw))
+    draw_joint(df, method)
+end

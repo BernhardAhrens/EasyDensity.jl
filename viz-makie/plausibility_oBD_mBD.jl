@@ -3,9 +3,11 @@ using Statistics
 using CairoMakie
 CairoMakie.activate!()
 
+include(joinpath(@__DIR__, "uq_columns.jl"))
+
 version = "v20251209"
 
-df = CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame)
+df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
 
 land_covers = [
     "artificial",
@@ -16,10 +18,12 @@ land_covers = [
     "woodland",
     "wetland"
 ]
-targets = ["pred_oBD", "pred_mBD"]
+function plausibility_figure(df, method)
+obd = "pred_oBD_$(method)"
+mbd = "pred_mBD_$(method)"
 
-df_oBD = dropmissing(df[:, ["LC_group", "pred_oBD"]])
-df_mBD = dropmissing(df[:, ["LC_group", "pred_mBD"]])
+df_oBD = dropmissing(df[:, ["LC_group", obd]])
+df_mBD = dropmissing(df[:, ["LC_group", mbd]])
 
 df_oBDg = groupby(df_oBD, "LC_group")
 df_mBDg = groupby(df_mBD, "LC_group")
@@ -37,7 +41,7 @@ with_theme(theme_latexfonts()) do
             xlabelsize = 16, ylabelsize=16, xticklabelsize = 16, yticklabelsize=16,)
 
         for (indx, f) in enumerate(land_covers)
-            datam = df_oBDg[("$(f)",)][!, :pred_oBD]
+            datam = df_oBDg[("$(f)",)][!, obd]
             # filter just in case
             datam = filter(x -> x !== missing, datam)
             datam = replace(datam, missing => NaN)
@@ -60,7 +64,7 @@ with_theme(theme_latexfonts()) do
             xlabelsize = 16, ylabelsize=16, xticklabelsize = 16, yticklabelsize=16,)
 
         for (indx, f) in enumerate(land_covers)
-            datam = df_mBDg[("$(f)",)][!, :pred_mBD]
+            datam = df_mBDg[("$(f)",)][!, mbd]
             # filter just in case
             datam = filter(x -> x !== missing, datam)
             datam = replace(datam, missing => NaN)
@@ -82,5 +86,10 @@ with_theme(theme_latexfonts()) do
             halign = :right
             ) for (j, k) in enumerate(["(a)", "(b)"])]
         fig
-        save(joinpath(@__DIR__, "../figures_png/plausibility_oBD_mBD.png"), fig)
+        save(joinpath(@__DIR__, "../figures_png/plausibility_oBD_mBD_$(method).png"), fig)
+end
+end
+
+for method in present_methods(df, method -> ["pred_oBD_$(method)", "pred_mBD_$(method)"])
+    plausibility_figure(df, method)
 end

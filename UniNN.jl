@@ -12,8 +12,6 @@ for (i, tgt) in enumerate(targets)
         testid = "mend_uniNN_dropout", prefix = "UniNN_", targets = [tgt],
         into = dest, write = i == length(targets), target = tgt,
         append_params = i > 1) do cfg
-        constructNNModel(study.predictors, [tgt];
-            hidden_layers = make_dropout_chain(cfg.h, cfg.act, cfg.p),
-            activation = cfg.act, scale_nn_outputs = true, input_batchnorm = false)
+        build_uninn(study.predictors, tgt, cfg)
     end
 end

@@ -3,22 +3,17 @@ using Statistics
 using CairoMakie
 CairoMakie.activate!()
 
+include(joinpath(@__DIR__, "uq_columns.jl"))
+
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
 version = "v20251209"
 # targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 # labels = ["SOC content", "CF", "BD", "SOC density"]
-to_join_dist = ["bd", "soc"]
-models = ["", "UniNN_", "MultiNN_", "SiNN_"]
 models_raw = ["UniNN", "MultiNN", "SiNN"]
 
-xy_to = []
-for m in models
-    push!(xy_to, m .* to_join_dist)
-end
-
-df = CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame)
+df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
 
 # ? why, from where are these coming from?
 scalers = Dict(
@@ -27,13 +22,6 @@ scalers = Dict(
     "BD"=> 0.529,
     "SOCdensity"=> 0.167)
 
-# append new columns
-for mod in models_raw
-    df[!, "$(mod)_soc"] = @. exp(df[!, "$(mod)_SOCconc"] / scalers["SOCconc"]) - 1
-    df[!, "$(mod)_cf"]  = @. exp(df[!, "$(mod)_CF"] / scalers["CF"]) - 1
-    df[!, "$(mod)_bd"]  = @. df[!, "$(mod)_BD"] / scalers["BD"] # ? are we getting the same numbers here!
-    df[!, "$(mod)_ocd"] = @. exp(df[!, "$(mod)_SOCdensity"] / scalers["SOCdensity"])
-end
 md_preds = rich.(rich.(models_raw, font=:bold), " prediction")
 titles = ["Observation", md_preds...]
 
@@ -52,6 +40,10 @@ df = subset(
     :soc => ByRow(>(200));
     skipmissing = true
 )
+
+function draw_outliers(df, method)
+add_scaled_predictions!(df, method, models_raw, scalers)
+xy_to = scaled_joint_pairs(method, models_raw)
 
 with_theme(theme_latexfonts()) do
 
@@ -95,5 +87,10 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures_png/joint_distribution_outliers.png"), fig)
+        save(joinpath(@__DIR__, "../figures_png/joint_distribution_outliers_$(method).png"), fig)
+end
+end
+
+for method in present_methods(df, scaled_probes(models_raw))
+    draw_outliers(df, method)
 end

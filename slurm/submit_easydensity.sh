@@ -10,6 +10,7 @@
 # Login node:
 #   ./slurm/submit_easydensity.sh          SiNN, MultiNN, and UniNN in parallel
 #   ./slurm/submit_easydensity.sh smoke    200-row smoke test, one job, all three in order
+#   ./slurm/submit_easydensity.sh ensemble MC dropout and a 5-member deep ensemble
 #
 # A full job uses 128 CPUs, one big node. Each fold has 648 configs and one
 # thread per config, so 128 is the largest node size and keeps those threads busy.
@@ -42,6 +43,19 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
             --error="${ROOT}/output/easydensity_smoke.err" \
             "$0"
     fi
+    if [[ "$mode" == "ensemble" ]]; then
+        exec sbatch --parsable \
+            --job-name=easydensity_ensemble \
+            --partition=big,work \
+            --ntasks=1 \
+            --cpus-per-task=5 \
+            --mem=64G \
+            --time=12:00:00 \
+            --export=ALL,EASYDENSITY_MODEL=ensemble,MLDATADEVICES_SILENCE_WARN_NO_GPU=1 \
+            --output="${ROOT}/output/easydensity_ensemble.out" \
+            --error="${ROOT}/output/easydensity_ensemble.err" \
+            "$0"
+    fi
     for model in SiNN MultiNN UniNN; do
         sbatch --parsable \
             --job-name="easydensity_${model}" \
@@ -72,6 +86,10 @@ case "${EASYDENSITY_MODEL:-all}" in
     SiNN) run_model SiNN.jl ;;
     MultiNN) run_model MultiNN.jl ;;
     UniNN) run_model UniNN.jl ;;
+    ensemble)
+        run_model deep_ensemble.jl
+        run_model prediction_uncertainty.jl
+        ;;
     all)
         run_model SiNN.jl
         run_model MultiNN.jl
