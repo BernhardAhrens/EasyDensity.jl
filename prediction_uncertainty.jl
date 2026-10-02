@@ -4,11 +4,11 @@ using Statistics
 # Sharpness, 95% interval coverage, and RMSE in bins of predictive std
 # for the _MC and _Ens columns written by deep_ensemble.jl.
 
-const VERSION = "v20251209"
-const TARGETS = ["SOCconc", "CF", "BD", "SOCdensity"]
-const MODELS = ["UniNN", "MultiNN", "SiNN"]
-const METHODS = ["MC", "Ens"]
-const N_BINS = 5
+VERSION = "v20251209"
+TARGETS = ["SOCconc", "CF", "BD", "SOCdensity"]
+MODELS = ["UniNN", "MultiNN", "SiNN"]
+METHODS = ["MC", "Ens"]
+N_BINS = 10
 
 finite_value(v) = v isa Real && isfinite(Float64(v))
 

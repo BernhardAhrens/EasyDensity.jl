@@ -9,7 +9,7 @@ function attach_uq(df, root)
         return df
     end
     uq = CSV.read(path, DataFrame)
-    fresh = setdiff(propertynames(uq), (:row_id,))
+    fresh = setdiff(propertynames(uq), (propertynames(df)...,))
     return leftjoin(df, select(uq, :row_id, fresh...), on = :row_id)
 end
 

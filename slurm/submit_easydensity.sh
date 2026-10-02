@@ -10,7 +10,8 @@
 # Login node:
 #   ./slurm/submit_easydensity.sh          SiNN, MultiNN, and UniNN in parallel
 #   ./slurm/submit_easydensity.sh smoke    200-row smoke test, one job, all three in order
-#   ./slurm/submit_easydensity.sh ensemble MC dropout and a 5-member deep ensemble
+#   ./slurm/submit_easydensity.sh ensemble MC dropout, deep ensemble, then figures
+#   ./slurm/submit_figures.sh              figures only, no retraining
 #
 # A full job uses 128 CPUs, one big node. Each fold has 648 configs and one
 # thread per config, so 128 is the largest node size and keeps those threads busy.
@@ -56,6 +57,19 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
             --error="${ROOT}/output/easydensity_ensemble.err" \
             "$0"
     fi
+    if [[ "$mode" == "figures" ]]; then
+        exec sbatch --parsable \
+            --job-name=easydensity_figures \
+            --partition=big,work \
+            --ntasks=1 \
+            --cpus-per-task=4 \
+            --mem=32G \
+            --time=02:00:00 \
+            --export=ALL,EASYDENSITY_MODEL=figures,MLDATADEVICES_SILENCE_WARN_NO_GPU=1 \
+            --output="${ROOT}/output/easydensity_figures.out" \
+            --error="${ROOT}/output/easydensity_figures.err" \
+            "$0"
+    fi
     for model in SiNN MultiNN UniNN; do
         sbatch --parsable \
             --job-name="easydensity_${model}" \
@@ -82,6 +96,19 @@ run_model() {
     julia --project=. --threads="${SLURM_CPUS_PER_TASK}" "$1"
 }
 
+run_figures() {
+    for script in \
+        viz-makie/model_accuracy.jl \
+        viz-makie/join_distribution.jl \
+        viz-makie/join_distribution_outliers.jl \
+        viz-makie/temporal.jl \
+        viz-makie/porosity.jl \
+        viz-makie/plausibility_oBD_mBD.jl
+    do
+        run_model "$script"
+    done
+}
+
 case "${EASYDENSITY_MODEL:-all}" in
     SiNN) run_model SiNN.jl ;;
     MultiNN) run_model MultiNN.jl ;;
@@ -89,6 +116,10 @@ case "${EASYDENSITY_MODEL:-all}" in
     ensemble)
         run_model deep_ensemble.jl
         run_model prediction_uncertainty.jl
+        run_figures
+        ;;
+    figures)
+        run_figures
         ;;
     all)
         run_model SiNN.jl
