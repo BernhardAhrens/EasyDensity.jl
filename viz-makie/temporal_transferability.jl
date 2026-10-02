@@ -16,7 +16,7 @@ ds = Parquet2.Dataset("eval/all_tc_with.lc_$(version).pq")
 df = DataFrame(ds; copycols=false)
 
 function compute_apply_mask(y_pred, y_target)
-    mask = .!ismissing.(y_pred) .& .!ismissing.(y_target)
+    mask = map((a, b) -> !ismissing(a) && !ismissing(b) && isfinite(a) && isfinite(b), y_pred, y_target)
     return replace(y_pred[mask], missing => NaN), replace(y_target[mask], missing => NaN)
 end
 

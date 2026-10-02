@@ -1,25 +1,19 @@
-using Parquet2, Tables, DataFrames
+using CSV, DataFrames
 using Statistics
-using GLMakie, CairoMakie
-GLMakie.activate!()
+using CairoMakie
+CairoMakie.activate!()
+
+include(joinpath(@__DIR__, "uq_columns.jl"))
 
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
-version = "v20251216"
+version = "v20251209"
 # targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 # labels = ["SOC content", "CF", "BD", "SOC density"]
-to_join_dist = ["bd", "soc"]
-models = ["", "UniNN_", "MultiNN_", "SiNN_"]
 models_raw = ["UniNN", "MultiNN", "SiNN"]
 
-xy_to = []
-for m in models
-    push!(xy_to, m .* to_join_dist)
-end
-
-ds = Parquet2.Dataset("eval/all_cv.pred_with.lc_$(version).pq")
-df = DataFrame(ds; copycols=false)
+df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
 
 # ? why, from where are these coming from?
 scalers = Dict(
@@ -28,16 +22,9 @@ scalers = Dict(
     "BD"=> 0.529,
     "SOCdensity"=> 0.167)
 
-# append new columns
-for mod in models_raw
-    df[!, "$(mod)_soc"] = @. exp(df[!, "$(mod)_SOCconc"] / scalers["SOCconc"]) - 1
-    df[!, "$(mod)_cf"]  = @. exp(df[!, "$(mod)_CF"] / scalers["CF"]) - 1
-    df[!, "$(mod)_bd"]  = @. df[!, "$(mod)_BD"] / scalers["BD"]
-    df[!, "$(mod)_ocd"] = @. exp(df[!, "$(mod)_SOCdensity"] / scalers["SOCdensity"])
-end
-
-# variables to check (same as python)
-vars_to_check = ["UniNN_ocd", "MultiNN_ocd", "SiNN_ocd"]
+function draw_temporal(df, method)
+add_scaled_predictions!(df, method, models_raw, scalers)
+vars_to_check = ["$(mod)_ocd_$(method)" for mod in models_raw]
 
 df_filtered = copy(df)
 
@@ -108,7 +95,7 @@ with_theme(theme_latexfonts()) do
             ax.yticks = 0:20:160
         end
         fig
-        save(joinpath(@__DIR__, "../figures/temporal_plausibility_1.pdf"), fig)
+        save(joinpath(@__DIR__, "../figures/temporal_plausibility_1_$(method).png"), fig)
 end
 
 
@@ -159,5 +146,10 @@ with_theme(theme_latexfonts()) do
         hidespines!(ax2, :l)
         colgap!(fig.layout, 50)
         fig
-        save(joinpath(@__DIR__, "../figures/temporal_plausibility_2.pdf"), fig)
+        save(joinpath(@__DIR__, "../figures/temporal_plausibility_2_$(method).png"), fig)
+end
+end
+
+for method in present_methods(df, scaled_probes(models_raw))
+    draw_temporal(df, method)
 end

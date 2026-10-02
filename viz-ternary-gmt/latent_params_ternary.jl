@@ -1,7 +1,9 @@
-using Parquet2, Tables
+using Parquet2, Tables, CSV
 using Statistics
 using DataFrames
 using GMT: ternary, colorbar!, makecpt, rich, superscript # for the ternary plot
+
+include(joinpath(@__DIR__, "../viz-makie/uq_columns.jl"))
 
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
@@ -9,8 +11,6 @@ cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 version = "v20251216"
 # targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 # labels = ["SOC content", "CF", "BD", "SOC density"]
-to_join_dist = ["bd", "soc"]
-models = ["", "UniNN_", "MultiNN_", "SiNN_"]
 models_raw = ["UniNN", "MultiNN", "SiNN"]
 
 function compute_r2_mse(y_pred, y_target)
@@ -21,13 +21,8 @@ function compute_r2_mse(y_pred, y_target)
     return _r2, _mse, _bias
 end
 
-xy_to = []
-for m in models
-    push!(xy_to, m .* to_join_dist)
-end
-
 ds = Parquet2.Dataset(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).pq"))
-df = DataFrame(ds; copycols=false)
+df = attach_uq(DataFrame(ds; copycols=true), joinpath(@__DIR__, ".."))
 
 # ? why, from where are these coming from?
 scalers = Dict(
@@ -36,16 +31,11 @@ scalers = Dict(
     "BD"=> 0.529,
     "SOCdensity"=> 0.167)
 
-# append new columns
-for mod in models_raw
-    df[!, "$(mod)_soc"] = @. exp(df[!, "$(mod)_SOCconc"] / scalers["SOCconc"]) - 1
-    df[!, "$(mod)_cf"]  = @. exp(df[!, "$(mod)_CF"] / scalers["CF"]) - 1
-    df[!, "$(mod)_bd"]  = @. df[!, "$(mod)_BD"] / scalers["BD"]
-    df[!, "$(mod)_ocd"] = @. exp(df[!, "$(mod)_SOCdensity"] / scalers["SOCdensity"])
-end
-
-# variables to check (same as python)
-vars_to_check = ["UniNN_ocd", "MultiNN_ocd", "SiNN_ocd"]
+function draw_ternary(df, method)
+add_scaled_predictions!(df, method, models_raw, scalers)
+vars_to_check = ["$(mod)_ocd_$(method)" for mod in models_raw]
+obd = "pred_oBD_$(method)"
+mbd = "pred_mBD_$(method)"
 
 df_filtered = copy(df)
 
@@ -94,7 +84,7 @@ gcols = [:clay, :silt, :sand]
 
 gdf = DataFrames.groupby(df_filter, gcols)
 
-select_names = ["clay", "silt", "sand", "pred_oBD", "pred_mBD"]
+select_names = ["clay", "silt", "sand", obd, mbd]
 
 df_filter_mean = combine(
     gdf,
@@ -105,8 +95,8 @@ df_filter_mean = combine(
 points_css = Matrix(df_filter_mean[:, [:clay, :silt, :sand]])
 
 # ---- 4. COLORS ----
-colors_oBD = df_filter_mean[!, "pred_oBD_function"]
-colors_mBD = df_filter_mean[!, "pred_mBD_function"]
+colors_oBD = df_filter_mean[!, "$(obd)_function"]
+colors_mBD = df_filter_mean[!, "$(mbd)_function"]
 
 # ---- 5. QUANTILE LIMITS ----
 vmin_o = quantile(skipmissing(colors_oBD), 0.05)
@@ -120,7 +110,7 @@ vmax_m = quantile(skipmissing(colors_mBD), 0.95)
 
 mkpath(joinpath(@__DIR__, "../figures/"))
 
-points_css = Matrix(df_filter_mean[:, [:clay, :silt, :sand, :pred_oBD_function]])
+points_css = Matrix(df_filter_mean[:, [:clay, :silt, :sand, Symbol("$(obd)_function")]])
 no_mss = replace(points_css, missing=>NaN)
 
 C = makecpt(cmap=:hot, range=(vmin_o, vmax_o), reverse=true, bg=true);
@@ -150,11 +140,11 @@ colorbar!(pos=(paper=true, anchor=(11,0), size=(8,0.5), justify=:BL, vertical=tr
         ticks=:auto,
         xlabel=rich("oBD (g / cm",  superscript("3"), ")")),
         show=false, # true, only works in the REPL, it fails in vs-code (panel issues)
-        savefig=joinpath(@__DIR__, "../figures/latent_oBD_2.pdf")
+        savefig=joinpath(@__DIR__, "../figures/latent_oBD_2_$(method).pdf")
         )
 
 #! now for mBD
-points_mBD = Matrix(df_filter_mean[:, [:clay, :silt, :sand, :pred_mBD_function]])
+points_mBD = Matrix(df_filter_mean[:, [:clay, :silt, :sand, Symbol("$(mbd)_function")]])
 no_mBD = replace(points_mBD, missing=>NaN)
 
 C = makecpt(cmap=:viridis, range=(vmin_m, vmax_m), reverse=true, bg=true);
@@ -182,8 +172,13 @@ colorbar!(pos=(paper=true, anchor=(11,0), size=(8,0.5), justify=:BL, vertical=tr
         ticks=:auto,
         xlabel=rich("mBD (g /cm",  superscript("3"), ")")),
         show=false, # true, only works in the REPL, it fails in vs-code (panel issues)
-        savefig=joinpath(@__DIR__, "../figures/latent_mBD_2.pdf")
+        savefig=joinpath(@__DIR__, "../figures/latent_mBD_2_$(method).pdf")
         )
+end
+
+for method in present_methods(df, method -> [pred_col(mod, target, method) for mod in models_raw for target in ("SOCconc", "CF", "BD", "SOCdensity")] ∪ ["pred_oBD_$(method)", "pred_mBD_$(method)"])
+    draw_ternary(copy(df), method)
+end
 
 # Executing from the REPL
 # cd viz-ternary-gmt
