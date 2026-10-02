@@ -31,7 +31,7 @@ function compute_apply_mask(y_pred, y_target)
 end
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures_png/"))
+mkpath(joinpath(@__DIR__, "../figures/"))
 
 # ! filter outliers !
 df = subset(
@@ -87,7 +87,7 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures_png/joint_distribution_outliers_$(method).png"), fig)
+        save(joinpath(@__DIR__, "../figures/joint_distribution_outliers_$(method).png"), fig)
 end
 end
 

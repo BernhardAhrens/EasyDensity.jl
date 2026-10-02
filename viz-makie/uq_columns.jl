@@ -1,45 +1,26 @@
-const UQ_VERSION = "v20251209"
+const ENS_VERSION = "v20261002"
+const MODELS = ("UniNN", "MultiNN", "SiNN")
 
-pred_col(model, target, method, suffix = "") = "$(model)_$(target)_$(method)$(suffix)"
+ens_col(model, target, stat = "median") = "$(model)_$(target)_ens_$(stat)"
+latent_col(name, stat = "median") = "pred_$(name)_ens_$(stat)"
 
-function attach_uq(df, root)
-    path = joinpath(root, "eval", "uq_cv.pred_$(UQ_VERSION).csv")
-    if !isfile(path)
-        @warn "uncertainty table not found" path
-        return df
-    end
-    uq = CSV.read(path, DataFrame)
-    fresh = setdiff(propertynames(uq), (propertynames(df)...,))
-    return leftjoin(df, select(uq, :row_id, fresh...), on = :row_id)
-end
-
-function present_methods(df, probes)
-    found = String[]
-    for method in ("MC", "Ens")
-        all(name -> hasproperty(df, Symbol(name)), probes(method)) || continue
-        push!(found, method)
-    end
-    isempty(found) && @warn "no _MC or _Ens columns for this figure"
-    return found
-end
-
-function add_scaled_predictions!(df, method, models, scalers)
-    for mod in models
-        df[!, "$(mod)_soc_$(method)"] = @. exp(df[!, pred_col(mod, "SOCconc", method)] / scalers["SOCconc"]) - 1
-        df[!, "$(mod)_cf_$(method)"] = @. exp(df[!, pred_col(mod, "CF", method)] / scalers["CF"]) - 1
-        df[!, "$(mod)_bd_$(method)"] = @. df[!, pred_col(mod, "BD", method)] / scalers["BD"]
-        df[!, "$(mod)_ocd_$(method)"] = @. exp(df[!, pred_col(mod, "SOCdensity", method)] / scalers["SOCdensity"])
+function attach_ensemble(df, root)
+    for model in MODELS
+        path = joinpath(root, "eval", "cv_ensemble_$(model)_$(ENS_VERSION).csv")
+        isfile(path) || error("missing ensemble table $path")
+        piece = CSV.read(path, DataFrame)
+        fresh = setdiff(propertynames(piece), (:row_id, propertynames(df)...))
+        df = leftjoin(df, select(piece, :row_id, fresh...), on = :row_id)
     end
     return df
 end
 
-function scaled_joint_pairs(method, models)
+function joint_pairs()
     pairs = [["bd", "soc"]]
-    for mod in models
-        push!(pairs, ["$(mod)_bd_$(method)", "$(mod)_soc_$(method)"])
+    for model in MODELS
+        push!(pairs, [ens_col(model, "BD"), ens_col(model, "SOCconc")])
     end
     return pairs
 end
 
-scaled_probes(models) = method -> [pred_col(mod, target, method)
-    for mod in models for target in ("SOCconc", "CF", "BD", "SOCdensity")]
+ocd_cols() = [ens_col(model, "SOCdensity") for model in MODELS]

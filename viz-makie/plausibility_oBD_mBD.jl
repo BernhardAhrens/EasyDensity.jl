@@ -31,7 +31,7 @@ df_mBDg = groupby(df_mBD, "LC_group")
 colors = repeat([:grey15], length(land_covers))
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures_png/"))
+mkpath(joinpath(@__DIR__, "../figures/"))
 
 with_theme(theme_latexfonts()) do
 
@@ -86,7 +86,7 @@ with_theme(theme_latexfonts()) do
             halign = :right
             ) for (j, k) in enumerate(["(a)", "(b)"])]
         fig
-        save(joinpath(@__DIR__, "../figures_png/plausibility_oBD_mBD_$(method).png"), fig)
+        save(joinpath(@__DIR__, "../figures/plausibility_oBD_mBD_$(method).png"), fig)
 end
 end
 

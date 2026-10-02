@@ -91,7 +91,7 @@ println(stats_copa)
 hbd_copa_g = groupby(hbd_clean_copa, [:LC_group])
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures_png/"))
+mkpath(joinpath(@__DIR__, "../figures/"))
 with_theme(theme_latexfonts()) do
     fig = Figure(; figure_padding=(5,15,0,15), size = (1200, 600), fontsize=15)
     axs = [Axis(fig[i,j], xlabelsize = 16, ylabelsize=16, xticklabelsize = 16, yticklabelsize=16,) for i in 1:2 for j in 1:4]
@@ -170,7 +170,7 @@ with_theme(theme_latexfonts()) do
     colgap!(fig.layout, 10)
     # rowgap!(fig.layout, 5)
     fig
-    save(joinpath(@__DIR__, "../figures_png/porosity_$(method).png"), fig)
+    save(joinpath(@__DIR__, "../figures/porosity_$(method).png"), fig)
 end
 end
 

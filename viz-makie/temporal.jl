@@ -71,7 +71,7 @@ colors = categorical_colors(:Set1, length(vars_to_check))
 colors = repeat([:grey15], 3)
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures_png/"))
+mkpath(joinpath(@__DIR__, "../figures/"))
 
 with_theme(theme_latexfonts()) do
 
@@ -95,7 +95,7 @@ with_theme(theme_latexfonts()) do
             ax.yticks = 0:20:160
         end
         fig
-        save(joinpath(@__DIR__, "../figures_png/temporal_plausibility_1_$(method).png"), fig)
+        save(joinpath(@__DIR__, "../figures/temporal_plausibility_1_$(method).png"), fig)
 end
 
 
@@ -146,7 +146,7 @@ with_theme(theme_latexfonts()) do
         hidespines!(ax2, :l)
         colgap!(fig.layout, 50)
         fig
-        save(joinpath(@__DIR__, "../figures_png/temporal_plausibility_2_$(method).png"), fig)
+        save(joinpath(@__DIR__, "../figures/temporal_plausibility_2_$(method).png"), fig)
 end
 end
 

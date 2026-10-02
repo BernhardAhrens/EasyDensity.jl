@@ -47,7 +47,7 @@ function mc_member_mean_sd(y_pred, y_std, y_target; n_mc = N_MC)
 end
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures_png/"))
+mkpath(joinpath(@__DIR__, "../figures/"))
 
 function accuracy_figures(df, method)
 Random.seed!(42)
@@ -109,7 +109,7 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures_png/model_accuracy_$(t)_$(method).png"), fig)
+        save(joinpath(@__DIR__, "../figures/model_accuracy_$(t)_$(method).png"), fig)
     end
 end
 end

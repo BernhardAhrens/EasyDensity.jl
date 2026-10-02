@@ -34,7 +34,7 @@ end
 df = dropmissing(df, [:bd, :soc])
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures_png/"))
+mkpath(joinpath(@__DIR__, "../figures/"))
 
 function draw_joint(df, method)
 add_scaled_predictions!(df, method, models_raw, scalers)
@@ -82,7 +82,7 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures_png/joint_distribution_$(method).png"), fig)
+        save(joinpath(@__DIR__, "../figures/joint_distribution_$(method).png"), fig)
 end
 
 # do a normal density heatmap!
@@ -129,7 +129,7 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures_png/joint_distribution_density_heatmap_$(method).png"), fig)
+        save(joinpath(@__DIR__, "../figures/joint_distribution_density_heatmap_$(method).png"), fig)
 end
 
 
