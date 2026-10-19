@@ -1,4 +1,4 @@
-# Retrain each selected UniNN with seeds 1:20. Every seed is kept.
+# Retrain each selected UniNN. The seed count is EASYDENSITY_N_ENSEMBLE (default 100).
 # The test fold is predicted only. Spread is computed in physical units.
 # uninn_model, fit, and predict_test are defined in cv/common.jl.
 

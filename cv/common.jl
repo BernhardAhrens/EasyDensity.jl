@@ -1,11 +1,13 @@
 using EasyHybrid, Lux, NNlib, Optimisers, LuxCore
 using CSV, DataFrames, Random, Statistics, LinearAlgebra
 
+include(joinpath(@__DIR__, "paths.jl"))
+
 # Dropout-free cross-validation. Tuning and the ensemble are separate scripts.
 # Outer test fold is untouched. The next fold is validation. The other folds train.
 
 const DATA_VERSION = "v20251125"
-const RESULT_VERSION = get(ENV, "EASYDENSITY_SMOKE", "0") == "1" ? "v20261002_smoke" : "v20261002"
+const RESULT_VERSION = result_version()
 const TUNING_SEED = 42
 const TARGETS = [:BD, :SOCconc, :CF, :SOCdensity]
 const SINN_LATENTS = [:oBD, :mBD]
@@ -116,7 +118,9 @@ function load_study()
         configs = [(h = h, bs = bs, lr = lr, act = act)
                    for h in HIDDEN for bs in (128, 256, 512)
                    for lr in (1e-3, 5e-4, 1e-4) for act in (relu, swish, gelu)]
-        k, nepochs, patience, seeds = 5, 200, 15, 1:20
+        n_ensemble = parse(Int, get(ENV, "EASYDENSITY_N_ENSEMBLE", "100"))
+        n_ensemble >= 1 || error("EASYDENSITY_N_ENSEMBLE must be at least 1, got $n_ensemble")
+        k, nepochs, patience, seeds = 5, 200, 15, 1:n_ensemble
     end
     return (; df, predictors, configs, k, nepochs, patience, seeds, smoke, root)
 end
@@ -178,10 +182,6 @@ function predict_test(model, trained, frame, names)
     yhat, _ = model(x_test, trained.ps, LuxCore.testmode(trained.st))
     n = nrow(frame)
     return Dict(name => column_values(yhat, name, n) for name in names)
-end
-
-function hyperparams_path(root, architecture)
-    return joinpath(root, "eval", "cv_$(architecture)_hyperparams_$(RESULT_VERSION).csv")
 end
 
 function remember(target, test_fold, val_fold, best)
@@ -267,12 +267,4 @@ function join_on_row(pieces)
         out = outerjoin(out, piece, on = :row_id)
     end
     return out
-end
-
-function ensemble_path(root, architecture)
-    return joinpath(root, "eval", "cv_ensemble_$(architecture)_$(RESULT_VERSION).csv")
-end
-
-function members_path(root, architecture)
-    return joinpath(root, "eval", "cv_ensemble_members_$(architecture)_$(RESULT_VERSION).csv")
 end

@@ -8,23 +8,13 @@ include(joinpath(@__DIR__, "uq_columns.jl"))
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
-version = "v20251209"
 # targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 # labels = ["SOC content", "CF", "BD", "SOC density"]
-models_raw = ["UniNN", "MultiNN", "SiNN"]
 
-df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
+df = load_figure_frame(joinpath(@__DIR__, ".."))
 
-# ? why, from where are these coming from?
-scalers = Dict(
-    "SOCconc"=> 0.151,
-    "CF" => 0.263,
-    "BD"=> 0.529,
-    "SOCdensity"=> 0.167)
-
-function draw_temporal(df, method)
-add_scaled_predictions!(df, method, models_raw, scalers)
-vars_to_check = ["$(mod)_ocd_$(method)" for mod in models_raw]
+function draw_temporal(df, source)
+vars_to_check = ocd_cols(source)
 
 df_filtered = copy(df)
 
@@ -71,7 +61,7 @@ colors = categorical_colors(:Set1, length(vars_to_check))
 colors = repeat([:grey15], 3)
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+figdir = figure_results()
 
 with_theme(theme_latexfonts()) do
 
@@ -95,7 +85,7 @@ with_theme(theme_latexfonts()) do
             ax.yticks = 0:20:160
         end
         fig
-        save(joinpath(@__DIR__, "../figures/temporal_plausibility_1_$(method).png"), fig)
+        save(joinpath(figdir, "temporal_plausibility_1_$(source).png"), fig)
 end
 
 
@@ -146,10 +136,10 @@ with_theme(theme_latexfonts()) do
         hidespines!(ax2, :l)
         colgap!(fig.layout, 50)
         fig
-        save(joinpath(@__DIR__, "../figures/temporal_plausibility_2_$(method).png"), fig)
+        save(joinpath(figdir, "temporal_plausibility_2_$(source).png"), fig)
 end
 end
 
-for method in present_methods(df, scaled_probes(models_raw))
-    draw_temporal(df, method)
+for source in prediction_sources()
+    draw_temporal(df, source)
 end

@@ -5,9 +5,7 @@ CairoMakie.activate!()
 
 include(joinpath(@__DIR__, "uq_columns.jl"))
 
-version = "v20251209"
-
-df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
+df = load_figure_frame(joinpath(@__DIR__, ".."))
 
 land_covers = [
     "artificial",
@@ -18,9 +16,9 @@ land_covers = [
     "woodland",
     "wetland"
 ]
-function plausibility_figure(df, method)
-obd = "pred_oBD_$(method)"
-mbd = "pred_mBD_$(method)"
+function plausibility_figure(df, source)
+obd = latent_value_col("oBD", source)
+mbd = latent_value_col("mBD", source)
 
 df_oBD = dropmissing(df[:, ["LC_group", obd]])
 df_mBD = dropmissing(df[:, ["LC_group", mbd]])
@@ -31,7 +29,7 @@ df_mBDg = groupby(df_mBD, "LC_group")
 colors = repeat([:grey15], length(land_covers))
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+figdir = figure_results()
 
 with_theme(theme_latexfonts()) do
 
@@ -86,10 +84,10 @@ with_theme(theme_latexfonts()) do
             halign = :right
             ) for (j, k) in enumerate(["(a)", "(b)"])]
         fig
-        save(joinpath(@__DIR__, "../figures/plausibility_oBD_mBD_$(method).png"), fig)
+        save(joinpath(figdir, "plausibility_oBD_mBD_$(source).png"), fig)
 end
 end
 
-for method in present_methods(df, method -> ["pred_oBD_$(method)", "pred_mBD_$(method)"])
-    plausibility_figure(df, method)
+for source in prediction_sources()
+    plausibility_figure(df, source)
 end

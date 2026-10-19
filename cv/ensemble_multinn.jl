@@ -1,4 +1,4 @@
-# Retrain the selected MultiNN with seeds 1:20. Every seed is kept.
+# Retrain the selected MultiNN. The seed count is EASYDENSITY_N_ENSEMBLE (default 100).
 # The test fold is predicted only. Spread is computed in physical units.
 # multinn_model, fit, and predict_test are defined in cv/common.jl.
 

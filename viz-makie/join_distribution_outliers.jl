@@ -8,19 +8,11 @@ include(joinpath(@__DIR__, "uq_columns.jl"))
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
-version = "v20251209"
 # targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 # labels = ["SOC content", "CF", "BD", "SOC density"]
 models_raw = ["UniNN", "MultiNN", "SiNN"]
 
-df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
-
-# ? why, from where are these coming from?
-scalers = Dict(
-    "SOCconc"=> 0.151,
-    "CF" => 0.263,
-    "BD"=> 0.529,
-    "SOCdensity"=> 0.167)
+df = load_figure_frame(joinpath(@__DIR__, ".."))
 
 md_preds = rich.(rich.(models_raw, font=:bold), " prediction")
 titles = ["Observation", md_preds...]
@@ -31,7 +23,7 @@ function compute_apply_mask(y_pred, y_target)
 end
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+figdir = figure_results()
 
 # ! filter outliers !
 df = subset(
@@ -41,9 +33,8 @@ df = subset(
     skipmissing = true
 )
 
-function draw_outliers(df, method)
-add_scaled_predictions!(df, method, models_raw, scalers)
-xy_to = scaled_joint_pairs(method, models_raw)
+function draw_outliers(df, source)
+xy_to = joint_pairs(source)
 
 with_theme(theme_latexfonts()) do
 
@@ -87,10 +78,10 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures/joint_distribution_outliers_$(method).png"), fig)
+        save(joinpath(figdir, "joint_distribution_outliers_$(source).png"), fig)
 end
 end
 
-for method in present_methods(df, scaled_probes(models_raw))
-    draw_outliers(df, method)
+for source in prediction_sources()
+    draw_outliers(df, source)
 end

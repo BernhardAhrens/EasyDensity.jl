@@ -1,4 +1,4 @@
-# Retrain the selected SiNN with seeds 1:20. Every seed is kept.
+# Retrain the selected SiNN. The seed count is EASYDENSITY_N_ENSEMBLE (default 100).
 # Targets and latent oBD / mBD are summarised in physical units.
 # sinn_model, fit, and predict_test are defined in cv/common.jl.
 

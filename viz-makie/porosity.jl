@@ -5,21 +5,21 @@ CairoMakie.activate!()
 
 include(joinpath(@__DIR__, "uq_columns.jl"))
 
-version = "v20251209"
+df = load_figure_frame(joinpath(@__DIR__, ".."))
 
-df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
-
-function porosity_figure(df, method)
+function porosity_figure(df, source)
+src_obd = latent_value_col("oBD", source)
+src_mbd = latent_value_col("mBD", source)
 # cleaning
 cols = [
     :row_id, :time, :lat, :lon, :id, :nuts0, :maxdiff, :bd, :clay,
     :sand, :silt, :cf, :ocd, :soc, :SOCconc, :CF, :BD, :SOCdensity,
     :ndvi, :ndwi, :lst_night, :lst_day, :precipitation, :peat,
-    Symbol("pred_oBD_$(method)"), Symbol("pred_mBD_$(method)"), :LC1, :LC_group
+    Symbol(src_obd), Symbol(src_mbd), :LC1, :LC_group
 ]
 
 hbd = select(df, cols)
-rename!(hbd, Symbol("pred_oBD_$(method)") => :pred_oBD, Symbol("pred_mBD_$(method)") => :pred_mBD)
+src_obd == "pred_oBD" || rename!(hbd, Symbol(src_obd) => :pred_oBD, Symbol(src_mbd) => :pred_mBD)
 println(size(hbd))
 
 # statistics
@@ -91,7 +91,7 @@ println(stats_copa)
 hbd_copa_g = groupby(hbd_clean_copa, [:LC_group])
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+figdir = figure_results()
 with_theme(theme_latexfonts()) do
     fig = Figure(; figure_padding=(5,15,0,15), size = (1200, 600), fontsize=15)
     axs = [Axis(fig[i,j], xlabelsize = 16, ylabelsize=16, xticklabelsize = 16, yticklabelsize=16,) for i in 1:2 for j in 1:4]
@@ -170,10 +170,10 @@ with_theme(theme_latexfonts()) do
     colgap!(fig.layout, 10)
     # rowgap!(fig.layout, 5)
     fig
-    save(joinpath(@__DIR__, "../figures/porosity_$(method).png"), fig)
+    save(joinpath(figdir, "porosity_$(source).png"), fig)
 end
 end
 
-for method in present_methods(df, method -> ["pred_oBD_$(method)", "pred_mBD_$(method)"])
-    porosity_figure(df, method)
+for source in prediction_sources()
+    porosity_figure(df, source)
 end

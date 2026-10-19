@@ -3,7 +3,8 @@
 
 using CSV, DataFrames, Statistics
 
-const VERSION = "v20261002"
+include(joinpath(@__DIR__, "paths.jl"))
+
 const MODELS = ("UniNN", "MultiNN", "SiNN")
 const TARGETS = ("SOCconc", "CF", "BD", "SOCdensity")
 const OBS = Dict("SOCconc" => :soc, "CF" => :cf, "BD" => :bd, "SOCdensity" => :ocd)
@@ -13,9 +14,11 @@ finite_value(v) = v isa Real && isfinite(Float64(v))
 rmse(pred, obs) = sqrt(mean((pred .- obs) .^ 2))
 
 function load_joined(root)
-    obs = CSV.read(joinpath(root, "eval", "all_cv.pred_with.lc_v20251209.csv"), DataFrame)
+    obs_path = observation_path(root)
+    isfile(obs_path) || error("missing $obs_path")
+    obs = CSV.read(obs_path, DataFrame)
     for model in MODELS
-        path = joinpath(root, "eval", "cv_ensemble_$(model)_$(VERSION).csv")
+        path = ensemble_path(root, model)
         isfile(path) || error("missing $path")
         piece = CSV.read(path, DataFrame)
         fresh = setdiff(propertynames(piece), (:row_id, propertynames(obs)...))
@@ -96,17 +99,19 @@ end
 root = dirname(@__DIR__)
 df = load_joined(root)
 summary = summary_table(df)
-eval_dir = joinpath(root, "eval")
-CSV.write(joinpath(eval_dir, "cv_ensemble_summary_$(VERSION).csv"), summary)
-@info "wrote" path = joinpath(eval_dir, "cv_ensemble_summary_$(VERSION).csv")
+out = results_dir(root)
+mkpath(out)
+summary_path = joinpath(out, "cv_ensemble_summary.csv")
+CSV.write(summary_path, summary)
+@info "wrote" path = summary_path
 lc = landcover_column(df)
 if lc === nothing
     @warn "no land-cover column; skipping land-cover table"
 else
-    CSV.write(joinpath(eval_dir, "cv_ensemble_landcover_$(VERSION).csv"), landcover_table(df, lc))
+    CSV.write(joinpath(out, "cv_ensemble_landcover.csv"), landcover_table(df, lc))
 end
 temporal = temporal_table(df)
-CSV.write(joinpath(eval_dir, "cv_ensemble_temporal_$(VERSION).csv"), temporal)
+CSV.write(joinpath(out, "cv_ensemble_temporal.csv"), temporal)
 show(summary; allrows = true, allcols = true)
 println()
 for model in MODELS

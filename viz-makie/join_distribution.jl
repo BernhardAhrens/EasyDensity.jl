@@ -1,6 +1,7 @@
 using CSV, DataFrames
 using Statistics
 using CairoMakie
+using AlgebraOfGraphics
 CairoMakie.activate!()
 
 include(joinpath(@__DIR__, "uq_columns.jl"))
@@ -8,19 +9,11 @@ include(joinpath(@__DIR__, "uq_columns.jl"))
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
-version = "v20251209"
 # targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 # labels = ["SOC content", "CF", "BD", "SOC density"]
 models_raw = ["UniNN", "MultiNN", "SiNN"]
 
-df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
-
-# ? why, from where are these coming from?
-scalers = Dict(
-    "SOCconc"=> 0.151,
-    "CF" => 0.263,
-    "BD"=> 0.529,
-    "SOCdensity"=> 0.167)
+df = load_figure_frame(joinpath(@__DIR__, ".."))
 
 md_preds = rich.(rich.(models_raw, font=:bold), " prediction")
 titles = ["Observation", md_preds...]
@@ -34,11 +27,10 @@ end
 df = dropmissing(df, [:bd, :soc])
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
+figdir = figure_results()
 
-function draw_joint(df, method)
-add_scaled_predictions!(df, method, models_raw, scalers)
-xy_to = scaled_joint_pairs(method, models_raw)
+function draw_joint(df, source)
+xy_to = joint_pairs(source)
 
 with_theme(theme_latexfonts()) do
 
@@ -82,12 +74,10 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures/joint_distribution_$(method).png"), fig)
+        save(joinpath(figdir, "joint_distribution_$(source).png"), fig)
 end
 
 # do a normal density heatmap!
-using AlgebraOfGraphics
-
 with_theme(theme_latexfonts()) do
 
         fig = Figure(; size = (1200, 350), fontsize=15)
@@ -129,13 +119,13 @@ with_theme(theme_latexfonts()) do
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
         fig
-        save(joinpath(@__DIR__, "../figures/joint_distribution_density_heatmap_$(method).png"), fig)
+        save(joinpath(figdir, "joint_distribution_density_heatmap_$(source).png"), fig)
 end
 
 
 # ! check numbers
 # variables to check (same as python)
-vars_to_check = ["$(mod)_ocd_$(method)" for mod in models_raw]
+vars_to_check = ocd_cols(source)
 
 df_filtered = copy(df)
 
@@ -176,22 +166,25 @@ end
 
 val_labels = ["UniNN","MultiNN","SiNN"]
 
-for ii in val_labels
-    col = skipmissing(stability[!, Symbol("$(ii)_ocd_$(method)_range")])
+rows = NamedTuple[]
+for (ii, var) in zip(val_labels, vars_to_check)
+    col = skipmissing(stability[!, Symbol(var * "_range")])
 
     q05 = quantile(col, 0.05)
     med = median(col)
     q95 = quantile(col, 0.95)
 
-    println(method, " ", ii, ": ", q05, "  ", med, "  ", q95)
+    println(source, " ", ii, ": ", q05, "  ", med, "  ", q95)
+    push!(rows, (; source, model = ii, q05, median = med, q95, n = length(col)))
+end
+return DataFrame(rows)
 end
 
-# ! this is my output
-# UniNN: 0.76481805617236  3.6588506761590427  12.348510392006892
-# MultiNN: 0.6328896287047178  3.02064480793726  10.658227136384529
-# SiNN: 0.738088003073246  3.4789800338796812  10.386650944633367
+tables = DataFrame[]
+for source in prediction_sources()
+    push!(tables, draw_joint(df, source))
 end
-
-for method in present_methods(df, scaled_probes(models_raw))
-    draw_joint(df, method)
-end
+quantiles = vcat(tables...)
+quantile_path = joinpath(figdir, "temporal_range_quantiles.csv")
+CSV.write(quantile_path, quantiles)
+println("wrote ", quantile_path)

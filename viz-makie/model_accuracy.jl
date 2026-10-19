@@ -1,6 +1,5 @@
-
 using CSV, DataFrames
-using Statistics, Random
+using Statistics
 using CairoMakie
 CairoMakie.activate!()
 
@@ -9,81 +8,76 @@ include(joinpath(@__DIR__, "uq_columns.jl"))
 #  "CET-L19"
 cmap_list = ["#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 
-version = "v20251209"
 targets = ["SOCconc", "CF", "BD", "SOCdensity"]
 labels = ["SOC content", "CF", "BD", "SOC density"]
-models = ["UniNN", "MultiNN", "SiNN"]
+observed = [:soc, :cf, :bd, :ocd]
+upper = [625, 100, 2, 160]
+units = ["g/kg", "%", "g/cm³", "kg/m³"]
 
-df = attach_uq(CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_$(version).csv"), DataFrame), joinpath(@__DIR__, ".."))
-const N_MC = 100
+df = load_figure_frame(joinpath(@__DIR__, ".."))
+"median" in prediction_sources() && "scaled" in scale_modes() && add_scaled_medians!(df)
 
 function compute_apply_mask(y_pred, y_target)
     mask = map((a, b) -> !ismissing(a) && !ismissing(b) && isfinite(a) && isfinite(b), y_pred, y_target)
     return replace(y_pred[mask], missing => NaN), replace(y_target[mask], missing => NaN)
 end
 
-function compute_r2_rmse_bias_sd(y_pred, y_target)
+function compute_r2_rmse_bias(y_pred, y_target)
     err = y_pred .- y_target
     _rmse = sqrt(mean(err .^ 2))
     denom = sum((y_target .- mean(y_target)) .^ 2)
     _r2 = 1 - sum(err .^ 2) / denom
     _bias = mean(err)
-    _sd = std(err)
-    return _r2, _rmse, _bias, _sd
+    return _r2, _rmse, _bias
 end
 
-function mc_member_mean_sd(y_pred, y_std, y_target; n_mc = N_MC)
-    mask = map((a, b, s) -> !ismissing(a) && !ismissing(b) && !ismissing(s) && isfinite(a) && isfinite(b) && isfinite(s), y_pred, y_target, y_std)
-    p = Float64.(y_pred[mask])
-    s = Float64.(y_std[mask])
-    o = Float64.(y_target[mask])
-    r2s = Vector{Float64}(undef, n_mc)
-    rmses = Vector{Float64}(undef, n_mc)
-    for m in 1:n_mc
-        member = p .+ s .* randn(length(p))
-        r2s[m], rmses[m], _, _ = compute_r2_rmse_bias_sd(member, o)
-    end
-    return mean(r2s), std(r2s), mean(rmses), std(rmses)
+axis_quantity(kind, unit) = unit == "" ? kind : "$kind ($unit)"
+
+function accuracy_obs(frame, target, obs, scale)
+    scale == "scaled" && return frame[!, target]
+    target == "CF" && return frame[!, obs] .* 100
+    return frame[!, obs]
+end
+
+function accuracy_pred(frame, model, target, source, scale)
+    scale == "unscaled" && return frame[!, value_col(model, target, source)]
+    source == "tune" && return frame[!, "$(model)_$(target)"]
+    return frame[!, "$(ens_col(model, target))_scaled"]
 end
 
 CairoMakie.activate!() # uncomment this to save pdf files.
-mkpath(joinpath(@__DIR__, "../figures/"))
-
-function accuracy_figures(df, method)
-Random.seed!(42)
+figdir = figure_results()
 
 with_theme(theme_latexfonts()) do
+    for source in prediction_sources(), scale in scale_modes()
     for (k, t) in enumerate(targets)
-        y_target = df[!, t]
+        hi = scale == "scaled" ? 1 : upper[k]
+        y_target = accuracy_obs(df, t, observed[k], scale)
+        pred_label = scale == "scaled" ? "Prediction" : axis_quantity("Prediction", units[k])
+        obs_label = scale == "scaled" ? "Observation" : axis_quantity("Observation", units[k])
         fig = Figure(; size = (1400, 460), fontsize=15)
-        axs = [Axis(fig[1, j], aspect= 1, xlabel = "Prediction", ylabel = "Observation",
+        axs = [Axis(fig[1, j], aspect= 1, xlabel = pred_label, ylabel = obs_label,
             xlabelsize = 16, ylabelsize=16, xticklabelsize = 16, yticklabelsize=16,
             titlefont = :regular, titlesize = 12)
             for j in 1:3]
         plt = nothing
-        set_upper_count = 1000 # ? we could have different bounds for different targets, but having one to compare among all is good, unless we want to highlight the difference also on the amount of samples per variable. 
-        for (i, model) in enumerate(models)
-            # @show "$(model)_$t"
-            y_pred = df[!, pred_col(model, t, method)]
-            y_std = df[!, pred_col(model, t, method, "_std")]
-            y_pred_new, y_target_new = compute_apply_mask(y_pred, y_target);
-            # @show size(y_target_new), size(y_pred_new)
-            _r2, _rmse, _bias, _sd = compute_r2_rmse_bias_sd(y_pred_new, y_target_new)
-            mr2, sr2, mrmse, srmse = mc_member_mean_sd(y_pred, y_std, y_target)
-            println("$method $model $t  R2=$(round(_r2, digits=3))  RMSE=$(round(_rmse, digits=4))  Bias=$(round(_bias, digits=4))  SD=$(round(_sd, digits=4))  meanR2=$(round(mr2, digits=3))±$(round(sr2, digits=3))  meanRMSE=$(round(mrmse, digits=4))±$(round(srmse, digits=4))  n=$(length(y_target_new))")
+        set_upper_count = 1000 # ? we could have different bounds for different targets, but having one to compare among all is good, unless we want to highlight the difference also on the amount of samples per variable.
+        for (i, model) in enumerate(MODELS)
+            y_pred = accuracy_pred(df, model, t, source, scale)
+            y_pred_new, y_target_new = compute_apply_mask(y_pred, y_target)
+            _r2, _rmse, _bias = compute_r2_rmse_bias(y_pred_new, y_target_new)
+            println("$source $scale $model $t  R2=$(round(_r2, digits=3))  RMSE=$(round(_rmse, digits=4))  Bias=$(round(_bias, digits=4))  n=$(length(y_target_new))")
 
-            plt = hexbin!(axs[i], y_pred_new, y_target_new; cellsize = 0.025, threshold = 1,
+            plt = hexbin!(axs[i], y_pred_new, y_target_new; cellsize = hi / 40, threshold = 1,
                 colormap = cmap_list, colorscale=log10,
                 colorrange = (1, set_upper_count), highclip = :grey20, lowclip=:transparent)
             # ! one to one line
-            lines!(axs[i], [Point2f(0,0), Point2f(1,1)], color = :grey15)
+            lines!(axs[i], [Point2f(0, 0), Point2f(hi, hi)], color = :grey15)
             # ! title
             axs[i].title = rich(rich("$model  ", font=:bold,),
                 rich("R", superscript("2"), " = $(round(_r2, digits=2))", color=:orangered),
                 rich("  RMSE = $(round(_rmse, digits=3))", color=:black),
-                rich("\nmean R", superscript("2"), " ± SD = $(round(mr2, digits=2)) ± $(round(sr2, digits=2))", color=:orangered),
-                rich("\nmean RMSE ± SD = $(round(mrmse, digits=3)) ± $(round(srmse, digits=3))", color=:black),
-                rich("\nBias ± SD = $(round(_bias, digits=3)) ± $(round(_sd, digits=3))", color=:dodgerblue),
+                rich("\nBias = $(round(_bias, digits=3))", color=:dodgerblue),
                 )
         end
         # ! label panel
@@ -95,25 +89,22 @@ with_theme(theme_latexfonts()) do
 
         cb = Colorbar(fig[1, 4], plt;
             label = rich(rich("Count", font=:bold), rich(
-                "\n\n Cross-validation performance of\n $(labels[k]) predictions."), # for\n other survey years using models trained\n on 2018 data.
-                # rich("\n\nTemporal transferability", font=:bold)
+                "\n\n Cross-validation performance of\n $(labels[k]) predictions."),
                 ),
             labelrotation = 0,
             minorticksvisible=true,
             minorticks=IntervalsBetween(9),
             ticks = [1, 10, 100, 1000],
             scale=log10)
-        limits!.(axs, 0, 1, 0, 1)
-        [axs[j].xticks = (0:0.25:1, ["0", "0.25", "0.5", "0.75", "1"]) for j in 1:3]
-        [axs[j].yticks = (0:0.25:1, ["0", "0.25", "0.5", "0.75", "1"]) for j in 1:3]
+        limits!.(axs, 0, hi, 0, hi)
+        if scale == "scaled"
+            tickpos = (0:0.25:1, ["0", "0.25", "0.5", "0.75", "1"])
+            [axs[j].xticks = tickpos for j in 1:3]
+            [axs[j].yticks = tickpos for j in 1:3]
+        end
         hideydecorations!.(axs[2:end], ticks=false, grid=false)
         hidespines!.(axs, :t, :r)
-        fig
-        save(joinpath(@__DIR__, "../figures/model_accuracy_$(t)_$(method).png"), fig)
+        save(joinpath(figdir, "model_accuracy_$(t)_$(source)_$(scale).png"), fig)
     end
-end
-end
-
-for method in present_methods(df, method -> [pred_col(model, t, method, suffix) for model in models for t in targets for suffix in ("", "_std")])
-    accuracy_figures(df, method)
+    end
 end

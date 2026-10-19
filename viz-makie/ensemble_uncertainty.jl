@@ -4,10 +4,8 @@ CairoMakie.activate!()
 
 include(joinpath(@__DIR__, "uq_columns.jl"))
 
-df = attach_ensemble(
-    CSV.read(joinpath(@__DIR__, "../eval/all_cv.pred_with.lc_v20251209.csv"), DataFrame),
-    joinpath(@__DIR__, ".."),
-)
+root = joinpath(@__DIR__, "..")
+df = attach_ensemble(CSV.read(observation_path(root), DataFrame), root)
 
 finite_value(v) = v isa Real && isfinite(Float64(v))
 colors = [:grey15, :dodgerblue3, :firebrick]
@@ -17,7 +15,7 @@ function finite_column(frame, name)
     return Float64.(col[map(finite_value, col)])
 end
 
-mkpath(joinpath(@__DIR__, "../figures"))
+figdir = figure_results(root)
 
 with_theme(theme_latexfonts()) do
     fig = Figure(; size = (900, 700), fontsize = 15)
@@ -46,5 +44,5 @@ with_theme(theme_latexfonts()) do
     end
     axislegend(ax; position = :lt, framevisible = false)
     hidespines!(ax, :t, :r)
-    save(joinpath(@__DIR__, "../figures/ensemble_uncertainty_SOCdensity.png"), fig)
+    save(joinpath(figdir, "ensemble_uncertainty_SOCdensity.png"), fig)
 end

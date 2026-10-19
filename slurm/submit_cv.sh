@@ -1,7 +1,7 @@
 #!/bin/bash
-# Submit tuning, then the ensemble, then the figures.
+# Submit tuning, then the ensemble, then the figures and the temporal transfer.
 # Ensemble jobs start only after every tuning job succeeds.
-# The figure job starts only after every ensemble job succeeds.
+# The figure job and the temporal transfer start only after every ensemble job succeeds.
 #
 #   ./slurm/submit_cv.sh
 #   ./slurm/submit_cv.sh smoke
@@ -27,8 +27,18 @@ if [[ "${1:-}" == "smoke" ]]; then
         --output="output/cv_ensemble_smoke.out" \
         --error="output/cv_ensemble_smoke.err" \
         slurm/submit_cv_ensemble.sh)
+    tc_id=$(sbatch --parsable \
+        --dependency="afterok:${ens_id}" \
+        --job-name=temporal_smoke \
+        --partition=big,work \
+        --ntasks=1 --cpus-per-task=2 --mem=32G --time=02:00:00 \
+        --export=ALL,EASYDENSITY_SMOKE=1,EASYDENSITY_SMOKE_N=200,MLDATADEVICES_SILENCE_WARN_NO_GPU=1 \
+        --output="output/temporal_smoke.out" \
+        --error="output/temporal_smoke.err" \
+        slurm/submit_temporal.sh)
     echo "tune ${tune_id}"
     echo "ensemble ${ens_id}"
+    echo "temporal ${tc_id}"
     exit 0
 fi
 
@@ -72,4 +82,14 @@ fig_id=$(sbatch --parsable \
     --output="output/cv_ensemble_figures.out" \
     --error="output/cv_ensemble_figures.err" \
     slurm/submit_cv_ensemble.sh)
+tc_id=$(sbatch --parsable \
+    --dependency="afterok:${ens_dep}" \
+    --job-name=temporal_transfer \
+    --partition=big,work \
+    --ntasks=1 --cpus-per-task=20 --mem=192G --time=48:00:00 \
+    --export=ALL,EASYDENSITY_SMOKE=0,MLDATADEVICES_SILENCE_WARN_NO_GPU=1 \
+    --output="output/temporal_transfer.out" \
+    --error="output/temporal_transfer.err" \
+    slurm/submit_temporal.sh)
 echo "figures ${fig_id}"
+echo "temporal ${tc_id}"

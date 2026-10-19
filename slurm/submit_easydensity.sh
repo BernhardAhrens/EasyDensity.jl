@@ -92,8 +92,9 @@ echo "SLURM_NODELIST: ${SLURM_NODELIST}"
 echo "EASYDENSITY_SMOKE: ${EASYDENSITY_SMOKE:-0}"
 echo "EASYDENSITY_MODEL: ${EASYDENSITY_MODEL:-all}"
 
+source "${SLURM_SUBMIT_DIR}/slurm/run_julia.sh"
 run_model() {
-    julia --project=. --threads="${SLURM_CPUS_PER_TASK}" "$1"
+    run_julia "$1"
 }
 
 run_figures() {

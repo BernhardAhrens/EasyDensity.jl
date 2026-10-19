@@ -17,6 +17,13 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+    if [[ -z "${EASYDENSITY_VERSION:-}" ]]; then
+        EASYDENSITY_VERSION="v$(date +%Y%m%d)"
+    fi
+    if [[ "${1:-}" == "smoke" && "$EASYDENSITY_VERSION" != *_smoke ]]; then
+        EASYDENSITY_VERSION="${EASYDENSITY_VERSION}_smoke"
+    fi
+    export EASYDENSITY_VERSION
     if [[ "${1:-}" == "smoke" ]]; then
         exec sbatch --parsable \
             --job-name=cv_tune_smoke \
@@ -46,8 +53,9 @@ echo "CPU threads: ${JULIA_NUM_THREADS}"
 echo "EASYDENSITY_SMOKE: ${EASYDENSITY_SMOKE:-0}"
 echo "EASYDENSITY_SCRIPT: ${EASYDENSITY_SCRIPT}"
 
+source "${SLURM_SUBMIT_DIR}/slurm/run_julia.sh"
 run_one() {
-    julia --project=. --threads="${SLURM_CPUS_PER_TASK}" "$1"
+    run_julia "$1"
 }
 
 if [[ "${EASYDENSITY_SCRIPT}" == "all" ]]; then

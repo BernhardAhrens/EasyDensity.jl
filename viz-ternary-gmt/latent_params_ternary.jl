@@ -108,7 +108,7 @@ vmin_m = quantile(skipmissing(colors_mBD), 0.05)
 vmax_m = quantile(skipmissing(colors_mBD), 0.95)
 
 
-mkpath(joinpath(@__DIR__, "../figures/"))
+mkpath(joinpath(@__DIR__, "../results/"))
 
 points_css = Matrix(df_filter_mean[:, [:clay, :silt, :sand, Symbol("$(obd)_function")]])
 no_mss = replace(points_css, missing=>NaN)
@@ -140,7 +140,7 @@ colorbar!(pos=(paper=true, anchor=(11,0), size=(8,0.5), justify=:BL, vertical=tr
         ticks=:auto,
         xlabel=rich("oBD (g / cm",  superscript("3"), ")")),
         show=false, # true, only works in the REPL, it fails in vs-code (panel issues)
-        savefig=joinpath(@__DIR__, "../figures/latent_oBD_2_$(method).pdf")
+        savefig=joinpath(@__DIR__, "../results/latent_oBD_2_$(method).pdf")
         )
 
 #! now for mBD
@@ -172,7 +172,7 @@ colorbar!(pos=(paper=true, anchor=(11,0), size=(8,0.5), justify=:BL, vertical=tr
         ticks=:auto,
         xlabel=rich("mBD (g /cm",  superscript("3"), ")")),
         show=false, # true, only works in the REPL, it fails in vs-code (panel issues)
-        savefig=joinpath(@__DIR__, "../figures/latent_mBD_2_$(method).pdf")
+        savefig=joinpath(@__DIR__, "../results/latent_mBD_2_$(method).pdf")
         )
 end
 
